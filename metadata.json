@@ -1,0 +1,6 @@
+{
+  "name": "المصمم الأول | Al-Mosamem Al-Awwal",
+  "description": "متجر المصمم الأول بالرياض — بوتيك التقنية والهدايا الفاخرة والألعاب الذكية. توصيل فوري خلال ساعات في الرياض.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
