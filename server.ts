@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
-  const isProd = process.env.NODE_ENV === 'production';
+  const isDev = process.env.NODE_ENV === 'development';
 
   app.use(express.json({ limit: '1mb' }));
 
@@ -198,7 +198,7 @@ async function startServer() {
   });
 
 
-  if (!isProd) {
+  if (isDev) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
