@@ -1,16 +1,39 @@
-export type OrderStatus = 'new' | 'processing' | 'shipping' | 'delivered' | 'returned';
+export type OrderStatus =
+  | 'new'
+  | 'processing'
+  | 'shipped'
+  | 'shipping'
+  | 'delivered'
+  | 'returned';
 
 export type PaymentMethodId = 'mada' | 'apple_pay' | 'credit_card' | 'tamara' | 'tabby' | 'cod';
 
-export type UserRole = 'customer' | 'admin';
+export type UserRole = 'superadmin' | 'admin' | 'customer';
 
 export interface AuthUser {
   id: string;
   email: string;
   fullName: string;
   phone?: string;
+  phoneVerified?: boolean;
+  correspondenceEmail?: string;
+  defaultDistrict?: string;
+  streetAddress?: string;
   role: UserRole;
   provider: 'email' | 'google';
+}
+
+export interface ManagedUserRecord {
+  id: string;
+  email: string;
+  fullName: string;
+  phone?: string;
+  phoneVerified?: boolean;
+  correspondenceEmail?: string;
+  defaultDistrict?: string;
+  streetAddress?: string;
+  role: UserRole;
+  createdAt: string;
 }
 
 export interface ProductVariant {
@@ -51,6 +74,12 @@ export interface Category {
 
 export type CouponDiscountType = 'percent' | 'fixed' | 'free_shipping';
 
+export type CouponConditionType =
+  | 'none'
+  | 'min_purchase'
+  | 'date_range'
+  | 'category_or_brand';
+
 export interface Coupon {
   id: string;
   code: string;
@@ -63,6 +92,13 @@ export interface Coupon {
   isWheelReward: boolean;
   wheelLabel?: string;
   wheelColor?: string;
+  conditionType?: CouponConditionType;
+  conditionDetails?: string;
+  minPurchaseAmount?: number;
+  validFromDate?: string;
+  validUntilDate?: string;
+  targetCategoryId?: string;
+  prizeMessageAr?: string;
 }
 
 export interface CartItem {
@@ -171,5 +207,25 @@ export interface StoreThemeSettings {
   secondaryColor: string;
   logoUrl: string;
   themePreset: ThemePresetId;
+  wheelTargetCouponId?: string;
 }
 
+export interface SallaIntegrationSettings {
+  enabled: boolean;
+  clientId: string;
+  clientSecret: string;
+  accessToken: string;
+  webhookSecret: string;
+  lastCatalogSyncAt?: string;
+  lastOrdersSyncAt?: string;
+  syncedProductsCount?: number;
+  syncedOrdersCount?: number;
+}
+
+export interface SallaWebhookEventRecord {
+  id: string;
+  event: string;
+  receivedAt: string;
+  verified: boolean;
+  summary: string;
+}

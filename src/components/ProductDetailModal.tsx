@@ -9,6 +9,7 @@ import {
   Truck,
   ShieldCheck,
   Star,
+  Heart,
 } from 'lucide-react';
 import type { Category, Product } from '../types/store';
 import {
@@ -24,6 +25,8 @@ interface ProductDetailModalProps {
   product: Product | null;
   allProducts: Product[];
   categories: Category[];
+  isWishlisted?: boolean;
+  onToggleWishlist?: (productId: string) => void;
   onClose: () => void;
   onSelectProduct: (product: Product) => void;
   onAddToCart: (product: Product, variantId?: string, quantity?: number) => void;
@@ -34,6 +37,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   product,
   allProducts,
   categories,
+  isWishlisted = false,
+  onToggleWishlist,
   onClose,
   onSelectProduct,
   onAddToCart,
@@ -95,14 +100,30 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             <span aria-hidden="true">/</span>
             <span className="font-mono text-emerald-700 font-semibold">{product.sku}</span>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="إغلاق تفاصيل المنتج"
-            className="p-2 rounded-full text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onToggleWishlist && (
+              <button
+                type="button"
+                onClick={() => onToggleWishlist(product.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-colors cursor-pointer ${
+                  isWishlisted
+                    ? 'border-red-200 bg-red-50 text-red-600'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Heart className={`w-3.5 h-3.5 ${isWishlisted ? 'fill-red-500 text-red-500' : ''}`} />
+                <span>{isWishlisted ? 'في المفضلة' : 'أضف للمفضلة'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="إغلاق تفاصيل المنتج"
+              className="p-2 rounded-full text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Main 2-column Contiguous Purchase Module */}

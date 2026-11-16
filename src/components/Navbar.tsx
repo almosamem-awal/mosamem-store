@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState, useEffect } from 'react';
 import {
   Search,
   ShoppingCart,
@@ -10,18 +10,24 @@ import {
   Zap,
   Disc,
   Star,
-  ShieldCheck,
   X,
+  ChevronDown,
+  Package,
+  Heart,
+  LogOut,
+  ShieldCheck,
 } from 'lucide-react';
 import type { AuthUser, Category, Product } from '../types/store';
 import { formatSAR, getEffectiveProductPrice } from '../utils/commerce';
 import { getFallbackProductArt } from '../data/seedData';
 import { BrandMark } from './BrandLogo';
+import type { CustomerPortalTab } from './CustomerAccountModal';
 
 export type MarketplaceQuickFilter = 'all' | 'flash' | 'magsafe' | 'top_rated';
 
 interface NavbarProps {
   cartCount: number;
+  wishlistCount: number;
   currentUser: AuthUser | null;
   activeView: 'store' | 'admin';
   products: Product[];
@@ -38,6 +44,8 @@ interface NavbarProps {
   onNavigateView: (view: 'store' | 'admin') => void;
   onOpenCart: () => void;
   onOpenAuth: () => void;
+  onOpenAccountPortal: (tab: CustomerPortalTab) => void;
+  onSignOut: () => void;
   onOpenWheel: () => void;
   onOpenPolicy: () => void;
   onJumpToFlashSales: () => void;
@@ -45,6 +53,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({
   cartCount,
+  wishlistCount,
   currentUser,
   activeView,
   products,
@@ -61,12 +70,26 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateView,
   onOpenCart,
   onOpenAuth,
+  onOpenAccountPortal,
+  onSignOut,
   onOpenWheel,
   onOpenPolicy,
   onJumpToFlashSales,
 }) => {
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [headerCatChoice, setHeaderCatChoice] = useState<string>('all');
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
 
   const autocompleteMatches = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -122,17 +145,9 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div className="flex items-center gap-3 sm:gap-5 shrink-0">
-            <button
-              type="button"
-              onClick={() => onNavigateView(activeView === 'admin' ? 'store' : 'admin')}
-              className="inline-flex items-center gap-1 font-semibold text-[#1E293B] hover:opacity-80 transition-opacity whitespace-nowrap cursor-pointer"
-            >
-              <ShieldCheck
-                className="w-3.5 h-3.5"
-                style={{ color: 'var(--color-primary)' }}
-              />
-              <span>{activeView === 'admin' ? 'العودة للمتجر' : 'لوحة الإدارة'}</span>
-            </button>
+            <span className="font-mono font-semibold text-[#059669] hidden sm:inline">
+              almosamem.com.sa · الرياض
+            </span>
           </div>
         </div>
       </div>
@@ -267,19 +282,130 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </form>
 
-          {/* Left: Account, Help, and Cart with Item Count Badge */}
+          {/* Left: Account Dropdown (or Login), Help, and Cart with Item Count Badge */}
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={onOpenAuth}
-              aria-label={currentUser ? `مرحباً، ${currentUser.fullName}` : 'مرحباً، تسجيل الدخول'}
-              className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-[#1E293B] hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <User className="w-4 h-4 sm:w-5 sm:h-5 text-[#1E293B]" />
-              <span className="hidden lg:inline max-w-[140px] truncate">
-                {currentUser ? `مرحباً، ${currentUser.fullName}` : 'مرحباً، تسجيل الدخول'}
-              </span>
-            </button>
+            {currentUser ? (
+              <div ref={accountMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setAccountMenuOpen((o) => !o)}
+                  aria-expanded={accountMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label={`قائمة حساب ${currentUser.fullName}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-[#1E293B] hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <span
+                    className="w-6 h-6 rounded-full text-[11px] font-extrabold flex items-center justify-center shrink-0"
+                    style={{
+                      backgroundColor: 'var(--color-primary)',
+                      color: 'var(--color-primary-contrast)',
+                    }}
+                  >
+                    {currentUser.fullName.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="hidden lg:inline max-w-[130px] truncate">
+                    مرحباً، {currentUser.fullName}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                </button>
+
+                {accountMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute left-0 top-full mt-2 w-72 bg-white rounded-2xl border border-slate-200 shadow-2xl z-50 overflow-hidden"
+                  >
+                    <div className="p-3.5 bg-[#F8FAFC] border-b border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-xs text-[#0B0F19] truncate">
+                          {currentUser.fullName}
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold shrink-0">
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>عميل موثق</span>
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 truncate" dir="ltr">
+                        {currentUser.email}
+                        {currentUser.phone ? ` · ${currentUser.phone}` : ''}
+                      </div>
+                    </div>
+
+                    <div className="p-1.5 space-y-0.5 text-xs font-semibold">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          onOpenAccountPortal('profile');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[#1E293B] hover:bg-slate-50 text-right cursor-pointer"
+                      >
+                        <User className="w-4 h-4 text-[#059669]" />
+                        <span>لوحة تحكم العميل</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          onOpenAccountPortal('orders');
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-[#1E293B] hover:bg-slate-50 text-right cursor-pointer"
+                      >
+                        <Package className="w-4 h-4 text-[#059669]" />
+                        <span>طلباتي ومتابعة الشحنات</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          onOpenAccountPortal('wishlist');
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[#1E293B] hover:bg-slate-50 text-right cursor-pointer"
+                      >
+                        <span className="inline-flex items-center gap-2.5">
+                          <Heart className="w-4 h-4 text-red-500" />
+                          <span>قائمة الرغبات</span>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-[10px] font-mono font-bold text-slate-700">
+                          {wishlistCount}
+                        </span>
+                      </button>
+
+                      <div className="my-1 border-t border-slate-100" />
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          onSignOut();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-red-600 hover:bg-red-50 text-right cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>تسجيل الخروج</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenAuth}
+                aria-label="مرحباً، تسجيل الدخول"
+                className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-[#1E293B] hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <User className="w-4 h-4 sm:w-5 sm:h-5 text-[#1E293B]" />
+                <span className="hidden lg:inline max-w-[140px] truncate">
+                  مرحباً، تسجيل الدخول
+                </span>
+              </button>
+            )}
 
             <button
               type="button"

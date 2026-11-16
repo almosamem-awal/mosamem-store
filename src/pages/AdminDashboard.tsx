@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BarChart3,
   Package,
@@ -18,25 +18,41 @@ import {
   Search,
   Palette,
   RotateCcw,
+  Users,
+  UserCog,
+  Store,
+  RefreshCw,
+  ShieldAlert,
+  KeyRound,
+  X,
+  PhoneCall,
 } from 'lucide-react';
 import type {
   AuthUser,
   Category,
   Coupon,
+  CouponConditionType,
   CouponDiscountType,
+  ManagedUserRecord,
   MarketingSeoSettings,
   Order,
   OrderStatus,
   PaymentGatewaysSettings,
   Product,
   ReturnPolicySettings,
+  SallaIntegrationSettings,
+  SallaWebhookEventRecord,
   StoreThemeSettings,
+  UserRole,
 } from '../types/store';
 import {
   buildWhatsAppOrderLink,
   computeStoreAnalytics,
+  describeCouponConditionAr,
   formatSAR,
-  isAdminEmail,
+  hasAdminAccess,
+  isSuperAdminEmail,
+  isSuperAdminUser,
 } from '../utils/commerce';
 import {
   DEFAULT_STORE_SETTINGS,
@@ -46,7 +62,17 @@ import {
   THEME_PRESETS,
 } from '../utils/theme';
 import { createStudioProductImage } from '../lib/productArt';
-import { signInWithEmailPassword } from '../lib/supabase';
+import {
+  changeUserPassword,
+  deleteManagedUser,
+  listManagedUsers,
+  resetManagedUserPassword,
+  signInWithEmailPassword,
+  signOutUser,
+  updateManagedUserRole,
+  updateUserProfile,
+} from '../lib/supabase';
+import { fetchSallaWebhookEvents, triggerSallaSync } from '../lib/api';
 import { BrandLogo } from '../components/BrandLogo';
 
 interface AdminDashboardProps {
@@ -59,6 +85,7 @@ interface AdminDashboardProps {
   seoSettings: MarketingSeoSettings;
   returnPolicy: ReturnPolicySettings;
   storeSettings: StoreThemeSettings;
+  sallaSettings: SallaIntegrationSettings;
   onAuthenticated: (user: AuthUser) => void;
   onSaveProducts: (products: Product[]) => void;
   onSaveCategories: (categories: Category[]) => void;
@@ -68,6 +95,7 @@ interface AdminDashboardProps {
   onSaveSeo: (seo: MarketingSeoSettings) => void;
   onSavePolicy: (policy: ReturnPolicySettings) => void;
   onSaveStoreSettings: (settings: StoreThemeSettings) => void;
+  onSaveSallaSettings: (salla: SallaIntegrationSettings) => void;
   onBackToStore: () => void;
 }
 
@@ -79,15 +107,28 @@ type AdminTab =
   | 'coupons'
   | 'orders'
   | 'gateways'
+  | 'salla'
+  | 'users'
+  | 'profile'
   | 'seo'
   | 'policy';
+
+const SUPERADMIN_ONLY_TABS: AdminTab[] = ['branding', 'gateways', 'salla', 'users'];
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
   new: 'جديد',
   processing: 'قيد التجهيز',
+  shipped: 'تم الشحن',
   shipping: 'جاري التوصيل',
   delivered: 'تم التسليم',
   returned: 'مرتجع',
+};
+
+const CONDITION_LABELS: Record<CouponConditionType, string> = {
+  none: 'بدون شروط مسبقة',
+  min_purchase: 'أن يتجاوز مشتريات بمبلغ محدد',
+  date_range: 'أن يتم الشراء في الفترة من : إلى',
+  category_or_brand: 'ينطبق على ماركة أو تصنيف محدد',
 };
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -100,6 +141,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   seoSettings,
   returnPolicy,
   storeSettings,
+  sallaSettings,
   onAuthenticated,
   onSaveProducts,
   onSaveCategories,
@@ -109,6 +151,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSaveSeo,
   onSavePolicy,
   onSaveStoreSettings,
+  onSaveSallaSettings,
   onBackToStore,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('analytics');
@@ -148,37 +191,87 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newCpnExpiry, setNewCpnExpiry] = useState('2027-12-31');
   const [newCpnWheel, setNewCpnWheel] = useState(true);
   const [newCpnWheelLabel, setNewCpnWheelLabel] = useState('خصم 10%');
+  const [newCpnCondType, setNewCpnCondType] = useState<CouponConditionType>('none');
+  const [newCpnCondDetails, setNewCpnCondDetails] = useState('');
+  const [newCpnFromDate, setNewCpnFromDate] = useState('');
+  const [newCpnUntilDate, setNewCpnUntilDate] = useState('');
+  const [newCpnTargetCat, setNewCpnTargetCat] = useState('');
+  const [newCpnPrizeMessage, setNewCpnPrizeMessage] = useState('');
 
-  // Local editable states for Gateways, SEO, Policy, and Branding/Theme
+  // Coupon Edit Modal state
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+
+  // Local editable states for Gateways, SEO, Policy, Theme, Salla
   const [draftGateways, setDraftGateways] = useState<PaymentGatewaysSettings>(gateways);
   const [draftSeo, setDraftSeo] = useState<MarketingSeoSettings>(seoSettings);
   const [draftPolicy, setDraftPolicy] = useState<ReturnPolicySettings>(returnPolicy);
   const [draftTheme, setDraftTheme] = useState<StoreThemeSettings>(storeSettings);
+  const [draftSalla, setDraftSalla] = useState<SallaIntegrationSettings>(sallaSettings);
+  const [sallaSyncing, setSallaSyncing] = useState<'catalog' | 'orders' | null>(null);
+  const [sallaEvents, setSallaEvents] = useState<SallaWebhookEventRecord[]>([]);
   const [savedNotice, setSavedNotice] = useState('');
 
-  React.useEffect(() => {
+  // SuperAdmin User Management state
+  const [managedUsers, setManagedUsers] = useState<ManagedUserRecord[]>(() => listManagedUsers());
+  const [userSearch, setUserSearch] = useState('');
+  const [resetPwdTargetId, setResetPwdTargetId] = useState<string | null>(null);
+  const [resetPwdValue, setResetPwdValue] = useState('');
+
+  // Admin Profile & Security state
+  const [corrEmail, setCorrEmail] = useState(currentUser?.correspondenceEmail || currentUser?.email || '');
+  const [adminPhone, setAdminPhone] = useState(currentUser?.phone || '');
+  const [smsSentCode, setSmsSentCode] = useState<string | null>(null);
+  const [smsVerifyInput, setSmsVerifyInput] = useState('');
+  const [currPwd, setCurrPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [profileError, setProfileError] = useState('');
+
+  useEffect(() => {
     setDraftTheme(storeSettings);
   }, [storeSettings]);
 
-  const isAuthorizedAdmin = isAdminEmail(currentUser?.email);
+  useEffect(() => {
+    setDraftSalla(sallaSettings);
+  }, [sallaSettings]);
+
+  useEffect(() => {
+    if (currentUser) {
+      setCorrEmail(currentUser.correspondenceEmail || currentUser.email);
+      setAdminPhone(currentUser.phone || '');
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      setManagedUsers(listManagedUsers());
+    }
+    if (activeTab === 'salla') {
+      void fetchSallaWebhookEvents().then(setSallaEvents);
+    }
+  }, [activeTab]);
+
+  const isAuthorizedAdmin = hasAdminAccess(currentUser);
+  const isSuperAdmin = isSuperAdminUser(currentUser);
 
   const showSaved = (msg: string) => {
     setSavedNotice(msg);
-    window.setTimeout(() => setSavedNotice(''), 3000);
+    window.setTimeout(() => setSavedNotice(''), 3500);
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    if (!isAdminEmail(loginEmail)) {
-      setLoginError('هذا البريد غير مصرح له بالدخول إلى لوحة الإدارة التنفيذية.');
-      return;
-    }
     setLoginLoading(true);
     const res = await signInWithEmailPassword(loginEmail, loginPassword);
     setLoginLoading(false);
     if (res.error || !res.user) {
       setLoginError(res.error || 'تعذر التحقق من بيانات الدخول.');
+      return;
+    }
+    if (!hasAdminAccess(res.user)) {
+      await signOutUser();
+      setLoginError('هذا الحساب غير مصرح له بالدخول إلى لوحة الإدارة التنفيذية.');
       return;
     }
     onAuthenticated(res.user);
@@ -194,7 +287,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             <div>
               <h1 className="font-display text-xl font-bold text-[#0B0F19]">
-                بوابة الإدارة التنفيذية (/admin)
+                بوابة الإدارة التنفيذية (/admino)
               </h1>
               <p className="text-xs text-slate-500">
                 مخصصة لحسابات الإدارة المعتمدة فقط
@@ -211,15 +304,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <form onSubmit={handleAdminLogin} className="space-y-4">
             <div>
               <label htmlFor="adm-email" className="block text-xs font-semibold text-slate-700 mb-1">
-                البريد الإلكتروني للإدارة
+                البريد الإلكتروني أو رقم الجوال للإدارة
               </label>
               <input
                 id="adm-email"
-                type="email"
+                type="text"
                 required
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="admin@almosamem.com.sa"
+                placeholder="name@example.com أو 05XXXXXXXX"
                 className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:border-[#059669] focus:outline-none"
               />
             </div>
@@ -247,22 +340,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button
               type="submit"
               disabled={loginLoading}
-              className="w-full py-3 rounded-lg bg-[#0B0F19] hover:bg-[#059669] text-white font-bold text-sm transition-colors"
+              className="w-full py-3 rounded-lg bg-[#0B0F19] hover:bg-[#059669] text-white font-bold text-sm transition-colors cursor-pointer"
             >
               {loginLoading ? 'جاري التحقق...' : 'دخول لوحة الإدارة'}
             </button>
           </form>
 
-          <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
-            <div className="font-semibold text-slate-800">حسابات الإدارة الافتراضية:</div>
-            <div className="font-mono">admin@almosamem.com.sa / Admin123!</div>
-            <div className="font-mono">hawasbrothers@gmail.com / Admin123!</div>
-          </div>
-
           <button
             type="button"
             onClick={onBackToStore}
-            className="w-full py-2 text-xs font-semibold text-slate-600 hover:text-[#0B0F19]"
+            className="w-full py-2 text-xs font-semibold text-slate-600 hover:text-[#0B0F19] cursor-pointer"
           >
             العودة إلى واجهة المتجر
           </button>
@@ -427,10 +514,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       isWheelReward: newCpnWheel,
       wheelLabel: newCpnWheelLabel.trim() || code,
       wheelColor: coupons.length % 2 === 0 ? '#059669' : '#0F172A',
+      conditionType: newCpnCondType,
+      conditionDetails: newCpnCondDetails.trim(),
+      minPurchaseAmount:
+        newCpnCondType === 'min_purchase'
+          ? Number(newCpnCondDetails.replace(/[^\d.]/g, '')) || undefined
+          : undefined,
+      validFromDate: newCpnCondType === 'date_range' && newCpnFromDate ? newCpnFromDate : undefined,
+      validUntilDate:
+        newCpnCondType === 'date_range' && newCpnUntilDate ? newCpnUntilDate : undefined,
+      targetCategoryId:
+        newCpnCondType === 'category_or_brand' && newCpnTargetCat ? newCpnTargetCat : undefined,
+      prizeMessageAr: newCpnPrizeMessage.trim() || undefined,
     };
     onSaveCoupons([created, ...coupons]);
     setNewCpnCode('');
+    setNewCpnCondType('none');
+    setNewCpnCondDetails('');
+    setNewCpnFromDate('');
+    setNewCpnUntilDate('');
+    setNewCpnTargetCat('');
+    setNewCpnPrizeMessage('');
     showSaved(`تم إنشاء الكوبون ${code}.`);
+  };
+
+  const handleSaveEditedCoupon = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCoupon) return;
+    const parsedMinFromDetails = Number(
+      (editingCoupon.conditionDetails || '').replace(/[^\d.]/g, '')
+    );
+    const cleaned: Coupon = {
+      ...editingCoupon,
+      code: editingCoupon.code.trim().toUpperCase(),
+      minPurchaseAmount:
+        editingCoupon.conditionType === 'min_purchase'
+          ? (parsedMinFromDetails > 0 ? parsedMinFromDetails : editingCoupon.minPurchaseAmount) ||
+            undefined
+          : undefined,
+    };
+    onSaveCoupons(coupons.map((c) => (c.id === cleaned.id ? cleaned : c)));
+    setEditingCoupon(null);
+    showSaved(`تم تحديث إعدادات الكوبون ${cleaned.code} بنجاح.`);
   };
 
   const filteredProducts = products.filter((p) => {
@@ -443,25 +568,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     );
   });
 
-  const navItems: Array<{ id: AdminTab; label: string; icon: React.ReactNode }> = [
+  const navItems: Array<{ id: AdminTab; label: string; icon: React.ReactNode; superOnly?: boolean }> = [
     { id: 'analytics', label: 'التحليلات التنفيذية', icon: <BarChart3 className="w-4 h-4" /> },
-    { id: 'branding', label: '🎨 الهوية والمظهر', icon: <Palette className="w-4 h-4" /> },
+    { id: 'branding', label: '🎨 الهوية والمظهر', icon: <Palette className="w-4 h-4" />, superOnly: true },
     { id: 'products', label: `المنتجات (${products.length})`, icon: <Package className="w-4 h-4" /> },
     { id: 'categories', label: 'الأقسام والخصم الجماعي', icon: <FolderKanban className="w-4 h-4" /> },
     { id: 'coupons', label: 'الكوبونات وعجلة الحظ', icon: <Ticket className="w-4 h-4" /> },
     { id: 'orders', label: `الطلبات (${orders.length})`, icon: <Truck className="w-4 h-4" /> },
-    { id: 'gateways', label: 'بوابات الدفع API', icon: <CreditCard className="w-4 h-4" /> },
+    { id: 'gateways', label: 'بوابات الدفع API', icon: <CreditCard className="w-4 h-4" />, superOnly: true },
+    { id: 'salla', label: 'ربط منصة سلة (Salla Integration)', icon: <Store className="w-4 h-4" />, superOnly: true },
+    { id: 'users', label: 'إدارة المستخدمين والصلاحيات', icon: <Users className="w-4 h-4" />, superOnly: true },
+    { id: 'profile', label: 'حسابي وإعدادات المشرف', icon: <UserCog className="w-4 h-4" /> },
     { id: 'seo', label: 'البكسل و SEO', icon: <LineChart className="w-4 h-4" /> },
     { id: 'policy', label: 'سياسة الاسترجاع', icon: <FileText className="w-4 h-4" /> },
   ];
+
+  const isRestrictedTab = SUPERADMIN_ONLY_TABS.includes(activeTab) && !isSuperAdmin;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
       <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-6 flex flex-col lg:flex-row gap-6">
         {/* Sidebar */}
-        <aside className="lg:w-64 shrink-0 space-y-2">
+        <aside className="lg:w-68 shrink-0 space-y-2">
           <div className="bg-[#0B0F19] text-white rounded-xl p-4 space-y-1">
-            <div className="text-[11px] font-mono text-[#00FF87]">EXECUTIVE CMS</div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-mono text-[#00FF87]">
+                {isSuperAdmin ? 'SUPERADMIN CMS' : 'ADMIN CMS'}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-white/10 font-mono text-slate-300">
+                /admino
+              </span>
+            </div>
             <div className="font-display text-base font-bold">{currentUser?.fullName}</div>
             <div className="text-[11px] text-slate-400 truncate">{currentUser?.email}</div>
           </div>
@@ -469,21 +606,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <nav aria-label="أقسام لوحة الإدارة" className="bg-white rounded-xl border border-slate-200 p-2 space-y-1">
             {navItems.map((item) => {
               const active = activeTab === item.id;
+              const locked = Boolean(item.superOnly && !isSuperAdmin);
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors text-right ${
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors text-right cursor-pointer ${
                     active
                       ? 'bg-[#0B0F19] text-white'
+                      : locked
+                      ? 'text-slate-400 hover:bg-slate-50'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B0F19]'
                   }`}
                 >
-                  <span className={active ? 'text-[#00FF87]' : 'text-slate-500'}>
-                    {item.icon}
+                  <span className="inline-flex items-center gap-2.5 min-w-0">
+                    <span className={active ? 'text-[#00FF87]' : 'text-slate-500'}>
+                      {item.icon}
+                    </span>
+                    <span className="truncate">{item.label}</span>
                   </span>
-                  <span>{item.label}</span>
+                  {locked && <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                 </button>
               );
             })}
@@ -492,7 +635,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={onBackToStore}
-            className="w-full py-2.5 px-4 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0B0F19]"
+            className="w-full py-2.5 px-4 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0B0F19] cursor-pointer"
           >
             معاينة المتجر المباشر
           </button>
@@ -510,8 +653,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
-          {/* 1. BRANDING & DYNAMIC THEME MANAGER */}
-          {activeTab === 'branding' && (
+          {/* SUPERADMIN ACCESS GUARD FOR SENSITIVE TABS */}
+          {isRestrictedTab ? (
+            <div className="bg-white rounded-2xl border-2 border-amber-300 p-8 text-center space-y-4 shadow-sm">
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <h2 className="font-display text-xl font-extrabold text-[#0B0F19]">
+                صلاحية مقتصرة على مدير التطبيق SuperAdmin
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                بصفتك مشرف متجر، تقتصر صلاحياتك على إدارة المنتجات والأقسام والطلبات والكوبونات. إعدادات مفاتيح API وبوابات الدفع، الهوية والشعار، وربط سلة، وإدارة الحسابات متاحة حصرياً للمدير التنفيذي SuperAdmin.
+              </p>
+              <button
+                type="button"
+                onClick={() => setActiveTab('analytics')}
+                className="px-5 py-2.5 rounded-lg bg-[#0B0F19] text-white text-xs font-bold cursor-pointer"
+              >
+                العودة للتحليلات التنفيذية
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* 1. BRANDING & DYNAMIC THEME MANAGER */}
+              {activeTab === 'branding' && (
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -541,6 +706,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="button"
                     onClick={() => {
                       const sanitized: StoreThemeSettings = {
+                        ...draftTheme,
                         primaryColor: normalizeHexColor(
                           draftTheme.primaryColor,
                           DEFAULT_STORE_SETTINGS.primaryColor
@@ -1269,10 +1435,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   إدارة الكوبونات وعجلة الحظ التفاعلية
                 </h2>
                 <p className="text-xs text-slate-500">
-                  إنشاء أكواد الخصم والتحكم في جوائز عجلة الحظ وحدود الاستخدام
+                  إنشاء وتحرير أكواد الخصم، الشروط الذكية، وتحديد النتيجة الافتراضية لعجلة الحظ
                 </p>
               </div>
 
+              {/* Rigged / Default Lucky Spin Wheel Target */}
+              <div className="bg-white rounded-xl border border-amber-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <label htmlFor="wheel-target-select" className="block text-xs font-extrabold text-[#0B0F19]">
+                    النتيجة الافتراضية لعجلة الحظ (توجيه الجائزة عند الدوران)
+                  </label>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    اختر الجائزة المستهدفة لكي تتوقف العجلة عليها دائماً، أو اتركها عشوائية بالكامل.
+                  </p>
+                </div>
+                <select
+                  id="wheel-target-select"
+                  value={storeSettings.wheelTargetCouponId || ''}
+                  onChange={(e) => {
+                    const nextSettings: StoreThemeSettings = {
+                      ...storeSettings,
+                      wheelTargetCouponId: e.target.value,
+                    };
+                    onSaveStoreSettings(nextSettings);
+                    showSaved(
+                      e.target.value
+                        ? 'تم تثبيت النتيجة الافتراضية المستهدفة لعجلة الحظ بنجاح.'
+                        : 'تم تفعيل الوضع العشوائي لجميع جوائز عجلة الحظ.'
+                    );
+                  }}
+                  className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-[#0B0F19] min-w-[240px]"
+                >
+                  <option value="">🎲 عشوائي بالكامل (حسب الحظ)</option>
+                  {coupons
+                    .filter((c) => c.active && c.isWheelReward)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        🎯 {c.wheelLabel || c.code} ({c.code})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Add Coupon Form */}
               <form
                 onSubmit={handleAddCoupon}
                 className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
@@ -1339,6 +1544,93 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">الشرط</label>
+                    <select
+                      value={newCpnCondType}
+                      onChange={(e) => setNewCpnCondType(e.target.value as CouponConditionType)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                    >
+                      {(Object.keys(CONDITION_LABELS) as CouponConditionType[]).map((ct) => (
+                        <option key={ct} value={ct}>
+                          {CONDITION_LABELS[ct]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">تفاصيل الشرط</label>
+                    <input
+                      type="text"
+                      value={newCpnCondDetails}
+                      onChange={(e) => setNewCpnCondDetails(e.target.value)}
+                      placeholder={
+                        newCpnCondType === 'min_purchase'
+                          ? 'مثال: 300'
+                          : newCpnCondType === 'date_range'
+                          ? 'مثال: عرض الويكند أو حدد التاريخين أدناه'
+                          : newCpnCondType === 'category_or_brand'
+                          ? 'مثال: MagSafe أو اختر التصنيف أدناه'
+                          : 'اختياري'
+                      }
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                    />
+                  </div>
+                </div>
+
+                {newCpnCondType === 'date_range' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold mb-1">من تاريخ</label>
+                      <input
+                        type="date"
+                        value={newCpnFromDate}
+                        onChange={(e) => setNewCpnFromDate(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold mb-1">إلى تاريخ</label>
+                      <input
+                        type="date"
+                        value={newCpnUntilDate}
+                        onChange={(e) => setNewCpnUntilDate(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {newCpnCondType === 'category_or_brand' && (
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">التصنيف المستهدف (اختياري)</label>
+                    <select
+                      value={newCpnTargetCat}
+                      onChange={(e) => setNewCpnTargetCat(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                    >
+                      <option value="">حسب النص المدخل في تفاصيل الشرط</option>
+                      {categories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.nameAr}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1">رسالة الهدية والشروط (تظهر عند الفوز في العجلة)</label>
+                  <textarea
+                    rows={2}
+                    value={newCpnPrizeMessage}
+                    onChange={(e) => setNewCpnPrizeMessage(e.target.value)}
+                    placeholder="مبارك لك الفوز! استخدم الكود الآن للاستفادة من العرض الحصري."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                  />
+                </div>
+
                 <div className="flex items-center justify-between">
                   <label className="inline-flex items-center gap-2 text-xs font-semibold">
                     <input
@@ -1350,7 +1642,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </label>
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-lg bg-[#059669] text-white text-xs font-bold"
+                    className="px-4 py-2 rounded-lg bg-[#059669] text-white text-xs font-bold cursor-pointer"
                   >
                     إضافة الكوبون
                   </button>
@@ -1358,66 +1650,360 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </form>
 
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-[#F8FAFC] text-slate-500 border-b border-slate-200">
-                    <tr>
-                      <th className="py-3 px-4">الكود</th>
-                      <th className="py-3 px-4">القيمة</th>
-                      <th className="py-3 px-4">الاستخدام</th>
-                      <th className="py-3 px-4">عجلة الحظ</th>
-                      <th className="py-3 px-4">الحالة</th>
-                      <th className="py-3 px-4">حذف</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {coupons.map((cpn) => (
-                      <tr key={cpn.id}>
-                        <td className="py-3 px-4 font-mono font-bold text-[#0B0F19]">{cpn.code}</td>
-                        <td className="py-3 px-4 tabular-nums">
-                          {cpn.discountType === 'percent'
-                            ? `${cpn.value}%`
-                            : cpn.discountType === 'fixed'
-                            ? formatSAR(cpn.value)
-                            : 'شحن مجاني'}
-                        </td>
-                        <td className="py-3 px-4 tabular-nums">
-                          {cpn.usedCount} / {cpn.usageLimit}
-                        </td>
-                        <td className="py-3 px-4">{cpn.isWheelReward ? cpn.wheelLabel : '—'}</td>
-                        <td className="py-3 px-4">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onSaveCoupons(
-                                coupons.map((c) =>
-                                  c.id === cpn.id ? { ...c, active: !c.active } : c
-                                )
-                              )
-                            }
-                            className={`px-2.5 py-1 rounded text-[11px] font-bold ${
-                              cpn.active
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-slate-200 text-slate-600'
-                            }`}
-                          >
-                            {cpn.active ? 'مفعل' : 'متوقف'}
-                          </button>
-                        </td>
-                        <td className="py-3 px-4">
-                          <button
-                            type="button"
-                            aria-label={`حذف كوبون ${cpn.code}`}
-                            onClick={() => onSaveCoupons(coupons.filter((c) => c.id !== cpn.id))}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-[#F8FAFC] text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4">الكود</th>
+                        <th className="py-3 px-4">القيمة</th>
+                        <th className="py-3 px-4">الاستخدام</th>
+                        <th className="py-3 px-4">عجلة الحظ</th>
+                        <th className="py-3 px-4">الشرط</th>
+                        <th className="py-3 px-4">الحالة</th>
+                        <th className="py-3 px-4">تحرير</th>
+                        <th className="py-3 px-4">حذف</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {coupons.map((cpn) => (
+                        <tr key={cpn.id}>
+                          <td className="py-3 px-4 font-mono font-bold text-[#0B0F19]">{cpn.code}</td>
+                          <td className="py-3 px-4 tabular-nums">
+                            {cpn.discountType === 'percent'
+                              ? `${cpn.value}%`
+                              : cpn.discountType === 'fixed'
+                              ? formatSAR(cpn.value)
+                              : 'شحن مجاني'}
+                          </td>
+                          <td className="py-3 px-4 tabular-nums">
+                            {cpn.usedCount} / {cpn.usageLimit}
+                          </td>
+                          <td className="py-3 px-4">{cpn.isWheelReward ? cpn.wheelLabel : '—'}</td>
+                          <td className="py-3 px-4 text-[11px] text-slate-600 max-w-[180px] truncate">
+                            {describeCouponConditionAr(cpn, categories)}
+                          </td>
+                          <td className="py-3 px-4">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onSaveCoupons(
+                                  coupons.map((c) =>
+                                    c.id === cpn.id ? { ...c, active: !c.active } : c
+                                  )
+                                )
+                              }
+                              className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer ${
+                                cpn.active
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-slate-200 text-slate-600'
+                              }`}
+                            >
+                              {cpn.active ? 'مفعل' : 'متوقف'}
+                            </button>
+                          </td>
+                          <td className="py-3 px-4">
+                            <button
+                              type="button"
+                              aria-label={`تحرير كوبون ${cpn.code}`}
+                              onClick={() => setEditingCoupon({ ...cpn })}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-300 hover:bg-slate-100 text-[11px] font-bold text-[#0B0F19] cursor-pointer"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>تحرير</span>
+                            </button>
+                          </td>
+                          <td className="py-3 px-4">
+                            <button
+                              type="button"
+                              aria-label={`حذف كوبون ${cpn.code}`}
+                              onClick={() => onSaveCoupons(coupons.filter((c) => c.id !== cpn.id))}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
+
+              {/* Edit Coupon Modal */}
+              {editingCoupon && (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={`تحرير الكوبون ${editingCoupon.code}`}
+                  className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm p-4 flex items-center justify-center overflow-y-auto"
+                >
+                  <form
+                    onSubmit={handleSaveEditedCoupon}
+                    className="bg-white rounded-2xl border border-slate-200 w-full max-w-xl p-6 space-y-4 shadow-2xl"
+                  >
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                      <h3 className="font-display text-lg font-bold text-[#0B0F19]">
+                        تحرير الكوبون ({editingCoupon.code})
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setEditingCoupon(null)}
+                        aria-label="إغلاق تحرير الكوبون"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold mb-1">الكود</label>
+                        <input
+                          type="text"
+                          required
+                          value={editingCoupon.code}
+                          onChange={(e) =>
+                            setEditingCoupon({ ...editingCoupon, code: e.target.value })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono uppercase"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold mb-1">نوع الخصم</label>
+                        <select
+                          value={editingCoupon.discountType}
+                          onChange={(e) =>
+                            setEditingCoupon({
+                              ...editingCoupon,
+                              discountType: e.target.value as CouponDiscountType,
+                            })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                        >
+                          <option value="percent">نسبة %</option>
+                          <option value="fixed">مبلغ ثابت ر.س</option>
+                          <option value="free_shipping">شحن مجاني</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold mb-1">القيمة</label>
+                        <input
+                          type="number"
+                          value={editingCoupon.value}
+                          onChange={(e) =>
+                            setEditingCoupon({
+                              ...editingCoupon,
+                              value: Number(e.target.value) || 0,
+                            })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs tabular-nums"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold mb-1">حد الاستخدام</label>
+                        <input
+                          type="number"
+                          value={editingCoupon.usageLimit}
+                          onChange={(e) =>
+                            setEditingCoupon({
+                              ...editingCoupon,
+                              usageLimit: Number(e.target.value) || 1,
+                            })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs tabular-nums"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold mb-1">تاريخ الانتهاء</label>
+                        <input
+                          type="date"
+                          value={editingCoupon.expiresAt}
+                          onChange={(e) =>
+                            setEditingCoupon({ ...editingCoupon, expiresAt: e.target.value })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold mb-1">عنوان شريحة العجلة</label>
+                        <input
+                          type="text"
+                          value={editingCoupon.wheelLabel || ''}
+                          onChange={(e) =>
+                            setEditingCoupon({ ...editingCoupon, wheelLabel: e.target.value })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                      <div>
+                        <label htmlFor="edit-cpn-cond-type" className="block text-xs font-semibold mb-1">
+                          الشرط
+                        </label>
+                        <select
+                          id="edit-cpn-cond-type"
+                          value={editingCoupon.conditionType || 'none'}
+                          onChange={(e) =>
+                            setEditingCoupon({
+                              ...editingCoupon,
+                              conditionType: e.target.value as CouponConditionType,
+                            })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                        >
+                          {(Object.keys(CONDITION_LABELS) as CouponConditionType[]).map((ct) => (
+                            <option key={ct} value={ct}>
+                              {CONDITION_LABELS[ct]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="edit-cpn-cond-details" className="block text-xs font-semibold mb-1">
+                          تفاصيل الشرط
+                        </label>
+                        <input
+                          id="edit-cpn-cond-details"
+                          type="text"
+                          value={editingCoupon.conditionDetails || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const num = Number(val.replace(/[^\d.]/g, ''));
+                            setEditingCoupon({
+                              ...editingCoupon,
+                              conditionDetails: val,
+                              ...(editingCoupon.conditionType === 'min_purchase'
+                                ? { minPurchaseAmount: num > 0 ? num : undefined }
+                                : {}),
+                            });
+                          }}
+                          placeholder={
+                            editingCoupon.conditionType === 'min_purchase'
+                              ? 'أدخل الحد الأدنى بالريال (مثال: 300)'
+                              : editingCoupon.conditionType === 'date_range'
+                              ? 'من : إلى (مثال: 2026-01-01 | 2026-12-31)'
+                              : 'معرّف التصنيف أو الماركة'
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {editingCoupon.conditionType === 'date_range' && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold mb-1">من تاريخ</label>
+                          <input
+                            type="date"
+                            value={editingCoupon.validFromDate || ''}
+                            onChange={(e) =>
+                              setEditingCoupon({
+                                ...editingCoupon,
+                                validFromDate: e.target.value,
+                              })
+                            }
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold mb-1">إلى تاريخ</label>
+                          <input
+                            type="date"
+                            value={editingCoupon.validUntilDate || ''}
+                            onChange={(e) =>
+                              setEditingCoupon({
+                                ...editingCoupon,
+                                validUntilDate: e.target.value,
+                              })
+                            }
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {editingCoupon.conditionType === 'category_or_brand' && (
+                      <div>
+                        <label className="block text-xs font-semibold mb-1">التصنيف المستهدف (اختياري)</label>
+                        <select
+                          value={editingCoupon.targetCategoryId || ''}
+                          onChange={(e) =>
+                            setEditingCoupon({
+                              ...editingCoupon,
+                              targetCategoryId: e.target.value,
+                            })
+                          }
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                        >
+                          <option value="">حسب النص المدخل في تفاصيل الشرط</option>
+                          {categories.map((cat) => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.nameAr}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div>
+                      <label htmlFor="edit-cpn-prize-msg" className="block text-xs font-semibold mb-1">
+                        رسالة الهدية والشروط
+                      </label>
+                      <textarea
+                        id="edit-cpn-prize-msg"
+                        rows={3}
+                        value={editingCoupon.prizeMessageAr || ''}
+                        onChange={(e) =>
+                          setEditingCoupon({
+                            ...editingCoupon,
+                            prizeMessageAr: e.target.value,
+                          })
+                        }
+                        placeholder="رسالة مخصصة تظهر للعميل عند الفوز أو تفعيل الكود..."
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <label className="inline-flex items-center gap-2 text-xs font-semibold">
+                        <input
+                          type="checkbox"
+                          checked={editingCoupon.isWheelReward}
+                          onChange={(e) =>
+                            setEditingCoupon({
+                              ...editingCoupon,
+                              isWheelReward: e.target.checked,
+                            })
+                          }
+                        />
+                        <span>عرض كجائزة في عجلة الحظ</span>
+                      </label>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingCoupon(null)}
+                          className="px-4 py-2 rounded-lg border border-slate-300 text-xs font-semibold"
+                        >
+                          إلغاء
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-5 py-2 rounded-lg bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold cursor-pointer"
+                        >
+                          حفظ التعديلات
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+              )}
             </div>
           )}
 
@@ -1761,6 +2347,575 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* 9. SALLA INTEGRATION HUB (SUPERADMIN ONLY) */}
+          {activeTab === 'salla' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-xl font-bold text-[#0B0F19]">
+                    ربط منصة سلة (Salla Integration)
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    إدارة مفاتيح Salla OAuth ومزامنة المنتجات والطلبات والـ Webhook الحي
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSaveSallaSettings(draftSalla);
+                    showSaved('تم حفظ إعدادات الربط مع منصة سلة.');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#059669] text-white text-xs font-bold cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>حفظ إعدادات سلة</span>
+                </button>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <span className="text-xs font-bold text-[#0B0F19]">حالة الربط مع منصة سلة</span>
+                  <label className="inline-flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={draftSalla.enabled}
+                      onChange={(e) =>
+                        setDraftSalla({ ...draftSalla, enabled: e.target.checked })
+                      }
+                    />
+                    <span>{draftSalla.enabled ? 'مفعّل' : 'معطّل'}</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Salla App Client ID</label>
+                    <input
+                      type="text"
+                      value={draftSalla.clientId}
+                      onChange={(e) =>
+                        setDraftSalla({ ...draftSalla, clientId: e.target.value })
+                      }
+                      placeholder="salla_client_id..."
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Salla Client Secret</label>
+                    <input
+                      type="password"
+                      value={draftSalla.clientSecret}
+                      onChange={(e) =>
+                        setDraftSalla({ ...draftSalla, clientSecret: e.target.value })
+                      }
+                      placeholder="••••••••"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Salla Access Token / Bearer Token</label>
+                    <input
+                      type="password"
+                      value={draftSalla.accessToken}
+                      onChange={(e) =>
+                        setDraftSalla({ ...draftSalla, accessToken: e.target.value })
+                      }
+                      placeholder="Bearer Token..."
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Salla Webhook Secret</label>
+                    <input
+                      type="password"
+                      value={draftSalla.webhookSecret}
+                      onChange={(e) =>
+                        setDraftSalla({ ...draftSalla, webhookSecret: e.target.value })
+                      }
+                      placeholder="whsec_..."
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-bold text-slate-700">رابط Webhook للاستقبال من سلة:</span>
+                  <code className="font-mono bg-white px-3 py-1 rounded border border-slate-200 text-[#059669]">
+                    {typeof window !== 'undefined'
+                      ? `${window.location.origin}/api/salla/webhook`
+                      : '/api/salla/webhook'}
+                  </code>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    disabled={sallaSyncing !== null}
+                    onClick={async () => {
+                      setSallaSyncing('catalog');
+                      const res = await triggerSallaSync({
+                        action: 'catalog',
+                        accessToken: draftSalla.accessToken,
+                        localCount: products.length,
+                      });
+                      setSallaSyncing(null);
+                      const updated: SallaIntegrationSettings = {
+                        ...draftSalla,
+                        lastCatalogSyncAt: new Date().toISOString(),
+                        syncedProductsCount: res.syncedCount,
+                      };
+                      setDraftSalla(updated);
+                      onSaveSallaSettings(updated);
+                      showSaved(res.messageAr);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#0B0F19] hover:bg-[#059669] text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${sallaSyncing === 'catalog' ? 'animate-spin' : ''}`} />
+                    <span>مزامنة المنتجات مع سلة</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={sallaSyncing !== null}
+                    onClick={async () => {
+                      setSallaSyncing('orders');
+                      const res = await triggerSallaSync({
+                        action: 'orders',
+                        accessToken: draftSalla.accessToken,
+                        localCount: orders.length,
+                      });
+                      setSallaSyncing(null);
+                      const updated: SallaIntegrationSettings = {
+                        ...draftSalla,
+                        lastOrdersSyncAt: new Date().toISOString(),
+                        syncedOrdersCount: res.syncedCount,
+                      };
+                      setDraftSalla(updated);
+                      onSaveSallaSettings(updated);
+                      showSaved(res.messageAr);
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[#0B0F19] text-xs font-bold cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${sallaSyncing === 'orders' ? 'animate-spin' : ''}`} />
+                    <span>مزامنة الطلبات</span>
+                  </button>
+                </div>
+
+                {(draftSalla.lastCatalogSyncAt || draftSalla.lastOrdersSyncAt) && (
+                  <div className="text-[11px] text-slate-600 flex flex-wrap gap-4 pt-1">
+                    {draftSalla.lastCatalogSyncAt && (
+                      <span>
+                        آخر مزامنة للمنتجات: {draftSalla.syncedProductsCount ?? products.length} منتج
+                      </span>
+                    )}
+                    {draftSalla.lastOrdersSyncAt && (
+                      <span>
+                        آخر مزامنة للطلبات: {draftSalla.syncedOrdersCount ?? orders.length} طلب
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+                  <h3 className="font-display text-sm font-bold text-[#0B0F19]">
+                    سجل أحداث Webhook الواردة من سلة
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => void fetchSallaWebhookEvents().then(setSallaEvents)}
+                    className="text-xs font-bold text-[#059669] hover:underline cursor-pointer"
+                  >
+                    تحديث السجل
+                  </button>
+                </div>
+                {sallaEvents.length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-500">
+                    لا توجد أحداث Webhook واردة حتى الآن.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {sallaEvents.map((evt) => (
+                      <div key={evt.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-mono font-bold text-[#0B0F19]">{evt.event}</div>
+                          <div className="text-[11px] text-slate-500">{evt.summary}</div>
+                        </div>
+                        <span className="text-[11px] font-mono text-slate-500">
+                          {new Date(evt.receivedAt).toLocaleTimeString('ar-SA')}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 10. USER & ADMINISTRATOR MANAGEMENT (SUPERADMIN ONLY) */}
+          {activeTab === 'users' && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="font-display text-xl font-bold text-[#0B0F19]">
+                  إدارة المستخدمين والصلاحيات (SuperAdmin)
+                </h2>
+                <p className="text-xs text-slate-500">
+                  استعراض كافة الحسابات، ترقية أو سحب صلاحيات الإدارة، إعادة تعيين كلمات المرور، وحذف الحسابات
+                </p>
+              </div>
+
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="بحث بالاسم أو البريد أو الجوال..."
+                  className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-slate-200 bg-white text-xs"
+                />
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-[#F8FAFC] text-slate-500 border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4">الاسم</th>
+                        <th className="py-3 px-4">البريد / الجوال</th>
+                        <th className="py-3 px-4">الصلاحية</th>
+                        <th className="py-3 px-4">إعادة تعيين كلمة المرور</th>
+                        <th className="py-3 px-4">حذف</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {managedUsers
+                        .filter((u) => {
+                          const q = userSearch.trim().toLowerCase();
+                          if (!q) return true;
+                          return (
+                            u.fullName.toLowerCase().includes(q) ||
+                            u.email.toLowerCase().includes(q) ||
+                            (u.phone || '').includes(q)
+                          );
+                        })
+                        .map((u) => {
+                          const isPrimarySuper = isSuperAdminEmail(u.email);
+                          return (
+                            <tr key={u.id} className="hover:bg-slate-50">
+                              <td className="py-3 px-4 font-bold text-[#0B0F19]">{u.fullName}</td>
+                              <td className="py-3 px-4">
+                                <div className="font-mono text-[#0B0F19]">{u.email}</div>
+                                {u.phone && (
+                                  <div className="text-[11px] font-mono text-slate-500">{u.phone}</div>
+                                )}
+                              </td>
+                              <td className="py-3 px-4">
+                                <select
+                                  aria-label={`تعديل صلاحية ${u.email}`}
+                                  disabled={isPrimarySuper}
+                                  value={u.role}
+                                  onChange={(e) => {
+                                    const updated = updateManagedUserRole(
+                                      u.id,
+                                      e.target.value as UserRole
+                                    );
+                                    setManagedUsers(updated);
+                                    showSaved(`تم تحديث صلاحية الحساب ${u.email}.`);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold disabled:bg-slate-100"
+                                >
+                                  <option value="superadmin">SuperAdmin</option>
+                                  <option value="admin">مشرف (Admin)</option>
+                                  <option value="customer">عميل (Customer)</option>
+                                </select>
+                              </td>
+                              <td className="py-3 px-4">
+                                {resetPwdTargetId === u.id ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="password"
+                                      value={resetPwdValue}
+                                      onChange={(e) => setResetPwdValue(e.target.value)}
+                                      placeholder="كلمة مرور جديدة"
+                                      className="px-2.5 py-1 rounded border border-slate-300 text-xs w-32"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const res = resetManagedUserPassword(u.id, resetPwdValue);
+                                        if (!res.ok) {
+                                          showSaved(res.error || 'تعذر التعيين');
+                                          return;
+                                        }
+                                        setResetPwdTargetId(null);
+                                        setResetPwdValue('');
+                                        showSaved(`تم تعيين كلمة مرور جديدة للحساب ${u.email}.`);
+                                      }}
+                                      className="px-2.5 py-1 rounded bg-[#059669] text-white text-[11px] font-bold"
+                                    >
+                                      حفظ
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setResetPwdTargetId(null);
+                                        setResetPwdValue('');
+                                      }}
+                                      className="px-2 py-1 text-[11px] text-slate-500"
+                                    >
+                                      إلغاء
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setResetPwdTargetId(u.id);
+                                      setResetPwdValue('');
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-slate-300 hover:bg-slate-100 text-[11px] font-bold"
+                                  >
+                                    <KeyRound className="w-3 h-3" />
+                                    <span>إعادة تعيين</span>
+                                  </button>
+                                )}
+                              </td>
+                              <td className="py-3 px-4">
+                                <button
+                                  type="button"
+                                  disabled={isPrimarySuper}
+                                  onClick={() => {
+                                    const res = deleteManagedUser(u.id);
+                                    setManagedUsers(res.users);
+                                    showSaved(
+                                      res.ok
+                                        ? `تم حذف الحساب ${u.email}.`
+                                        : res.error || 'لا يمكن الحذف'
+                                    );
+                                  }}
+                                  aria-label={`حذف حساب ${u.email}`}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded disabled:opacity-30 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 11. ADMIN PROFILE, PASSWORD & PHONE VERIFICATION */}
+          {activeTab === 'profile' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="font-display text-xl font-bold text-[#0B0F19]">
+                  حسابي وإعدادات المشرف
+                </h2>
+                <p className="text-xs text-slate-500">
+                  تحديث بريد المراسلات، ربط وتوثيق رقم الجوال السعودي (05XXXXXXXX)، وتغيير كلمة المرور
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Correspondence Email & Phone Verification */}
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!currentUser) return;
+                    const res = await updateUserProfile({
+                      userId: currentUser.id,
+                      correspondenceEmail: corrEmail,
+                      phone: adminPhone,
+                    });
+                    if (res.ok && res.user) {
+                      onAuthenticated(res.user);
+                      showSaved('تم تحديث بريد المراسلات ورقم الجوال.');
+                    }
+                  }}
+                  className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
+                >
+                  <h3 className="font-display text-base font-bold text-[#0B0F19]">
+                    بريد المراسلات وتوثيق الجوال
+                  </h3>
+
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">البريد الإلكتروني للمراسلات</label>
+                    <input
+                      type="email"
+                      required
+                      value={corrEmail}
+                      onChange={(e) => setCorrEmail(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold">رقم الجوال السعودي (لتسجيل الدخول والتنبيهات)</label>
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded ${
+                          currentUser?.phoneVerified
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {currentUser?.phoneVerified ? 'موثق ✓' : 'غير موثق'}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="tel"
+                        value={adminPhone}
+                        onChange={(e) => setAdminPhone(e.target.value)}
+                        placeholder="05XXXXXXXX"
+                        className="flex-1 px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const code = String(Math.floor(1000 + Math.random() * 9000));
+                          setSmsSentCode(code);
+                          setSmsVerifyInput('');
+                          showSaved(`تم إرسال رمز التحقق SMS (${code}) إلى ${adminPhone || 'جوالك'}.`);
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-xs font-bold shrink-0 cursor-pointer"
+                      >
+                        <PhoneCall className="w-3.5 h-3.5 text-[#059669]" />
+                        <span>إرسال رمز SMS</span>
+                      </button>
+                    </div>
+
+                    {smsSentCode && (
+                      <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={smsVerifyInput}
+                          onChange={(e) => setSmsVerifyInput(e.target.value)}
+                          placeholder="أدخل رمز التحقق"
+                          className="flex-1 px-3 py-1.5 rounded border border-slate-300 bg-white text-xs font-mono"
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (smsVerifyInput.trim() !== smsSentCode || !currentUser) {
+                              showSaved('رمز التحقق غير متطابق.');
+                              return;
+                            }
+                            const res = await updateUserProfile({
+                              userId: currentUser.id,
+                              phone: adminPhone,
+                              phoneVerified: true,
+                            });
+                            if (res.ok && res.user) {
+                              onAuthenticated(res.user);
+                              setSmsSentCode(null);
+                              showSaved('تم توثيق رقم الجوال بنجاح ويمكنك الدخول به مستقبلاً.');
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded bg-[#059669] text-white text-xs font-bold cursor-pointer"
+                        >
+                          تأكيد التوثيق
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 rounded-lg bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold cursor-pointer"
+                  >
+                    حفظ بيانات المراسلات والجوال
+                  </button>
+                </form>
+
+                {/* Change Password */}
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setProfileError('');
+                    if (!currentUser) return;
+                    if (newPwd !== confirmPwd) {
+                      setProfileError('كلمة المرور الجديدة وتأكيدها غير متطابقين.');
+                      return;
+                    }
+                    const res = await changeUserPassword({
+                      userId: currentUser.id,
+                      currentPassword: currPwd,
+                      newPassword: newPwd,
+                    });
+                    if (!res.ok) {
+                      setProfileError(res.error || 'تعذر تغيير كلمة المرور.');
+                      return;
+                    }
+                    setCurrPwd('');
+                    setNewPwd('');
+                    setConfirmPwd('');
+                    showSaved('تم تحديث كلمة المرور الخاصة بك بنجاح.');
+                  }}
+                  className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
+                >
+                  <h3 className="font-display text-base font-bold text-[#0B0F19]">
+                    تغيير كلمة المرور
+                  </h3>
+
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">كلمة المرور الحالية</label>
+                    <input
+                      type="password"
+                      required
+                      value={currPwd}
+                      onChange={(e) => setCurrPwd(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">كلمة المرور الجديدة</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={newPwd}
+                      onChange={(e) => setNewPwd(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">تأكيد كلمة المرور الجديدة</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={confirmPwd}
+                      onChange={(e) => setConfirmPwd(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                    />
+                  </div>
+
+                  {profileError && (
+                    <p role="alert" className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2.5">
+                      {profileError}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 rounded-lg bg-[#0B0F19] hover:bg-[#059669] text-white text-xs font-bold cursor-pointer"
+                  >
+                    تحديث كلمة المرور
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+            </>
           )}
         </main>
       </div>

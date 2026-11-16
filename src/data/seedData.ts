@@ -7,6 +7,7 @@ import type {
   PaymentGatewaysSettings,
   Product,
   ReturnPolicySettings,
+  SallaIntegrationSettings,
   StoreThemeSettings,
 } from '../types/store';
 
@@ -1183,6 +1184,10 @@ export const INITIAL_COUPONS: Coupon[] = [
     isWheelReward: true,
     wheelLabel: '50 ر.س',
     wheelColor: '#059669',
+    conditionType: 'min_purchase',
+    conditionDetails: '150',
+    minPurchaseAmount: 150,
+    prizeMessageAr: 'مبارك! حصلت على خصم فوري 50 ر.س للطلبات التي تتجاوز 150 ر.س — استخدم الكود عند إتمام الطلب.',
   },
   {
     id: 'cpn-2',
@@ -1196,6 +1201,9 @@ export const INITIAL_COUPONS: Coupon[] = [
     isWheelReward: true,
     wheelLabel: 'خصم 30%',
     wheelColor: '#FACC15',
+    conditionType: 'none',
+    conditionDetails: '',
+    prizeMessageAr: 'خصم حصري بنسبة 30% على جميع منتجات المصمم الأول بدون حد أدنى للطلب!',
   },
   {
     id: 'cpn-3',
@@ -1209,6 +1217,9 @@ export const INITIAL_COUPONS: Coupon[] = [
     isWheelReward: true,
     wheelLabel: 'شحن مجاني',
     wheelColor: '#FF6B00',
+    conditionType: 'none',
+    conditionDetails: '',
+    prizeMessageAr: 'استمتع بتوصيل فوري مجاني بالكامل داخل أحياء الرياض عند تفعيل الكود في السلة!',
   },
   {
     id: 'cpn-4',
@@ -1222,6 +1233,10 @@ export const INITIAL_COUPONS: Coupon[] = [
     isWheelReward: true,
     wheelLabel: '100 ر.س',
     wheelColor: '#FFFFFF',
+    conditionType: 'min_purchase',
+    conditionDetails: '300',
+    minPurchaseAmount: 300,
+    prizeMessageAr: 'الجائزة الكبرى! خصم 100 ر.س فوري عندما تتجاوز مشترياتك 300 ر.س — سارع بتطبيقه قبل انتهاء المؤقت.',
   },
   {
     id: 'cpn-5',
@@ -1235,6 +1250,9 @@ export const INITIAL_COUPONS: Coupon[] = [
     isWheelReward: true,
     wheelLabel: 'خصم 15%',
     wheelColor: '#059669',
+    conditionType: 'none',
+    conditionDetails: '',
+    prizeMessageAr: 'كود كبار الشخصيات يمنحك خصم 15% إضافي فوري على سلة التسوق.',
   },
   {
     id: 'cpn-6',
@@ -1248,6 +1266,10 @@ export const INITIAL_COUPONS: Coupon[] = [
     isWheelReward: true,
     wheelLabel: 'هدية خاصة',
     wheelColor: '#FACC15',
+    conditionType: 'category_or_brand',
+    conditionDetails: 'cat-accessories',
+    targetCategoryId: 'cat-accessories',
+    prizeMessageAr: 'هدية خاصة بقيمة 25 ر.س تطبق على قسم إكسسوارات الجوال الفاخرة عند الدفع.',
   },
   {
     id: 'cpn-7',
@@ -1259,6 +1281,8 @@ export const INITIAL_COUPONS: Coupon[] = [
     expiresAt: '2027-12-31',
     active: true,
     isWheelReward: false,
+    conditionType: 'none',
+    conditionDetails: '',
   },
   {
     id: 'cpn-8',
@@ -1270,6 +1294,9 @@ export const INITIAL_COUPONS: Coupon[] = [
     expiresAt: '2027-12-31',
     active: true,
     isWheelReward: false,
+    conditionType: 'min_purchase',
+    conditionDetails: '250',
+    minPurchaseAmount: 250,
   },
 ];
 
@@ -1484,5 +1511,16 @@ export const INITIAL_STORE_SETTINGS: StoreThemeSettings = {
   secondaryColor: '#FF6B00',
   logoUrl: '',
   themePreset: 'official_green',
+  wheelTargetCouponId: '',
+};
+
+export const INITIAL_SALLA_SETTINGS: SallaIntegrationSettings = {
+  enabled: false,
+  clientId: '',
+  clientSecret: '',
+  accessToken: '',
+  webhookSecret: '',
+  syncedProductsCount: 0,
+  syncedOrdersCount: 0,
 };
 

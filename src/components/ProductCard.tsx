@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShoppingCart, Star } from 'lucide-react';
+import { Heart, ShoppingCart, Star } from 'lucide-react';
 import type { Category, Product } from '../types/store';
 import { formatSAR, getEffectiveProductPrice } from '../utils/commerce';
 import { getFallbackProductArt } from '../data/seedData';
@@ -7,6 +7,8 @@ import { getFallbackProductArt } from '../data/seedData';
 interface ProductCardProps {
   product: Product;
   categories: Category[];
+  isWishlisted?: boolean;
+  onToggleWishlist?: (productId: string) => void;
   onSelectProduct: (product: Product) => void;
   onQuickAdd: (product: Product) => void;
 }
@@ -14,6 +16,8 @@ interface ProductCardProps {
 export const ProductCard: React.FC<ProductCardProps> = ({
   product,
   categories,
+  isWishlisted = false,
+  onToggleWishlist,
   onSelectProduct,
   onQuickAdd,
 }) => {
@@ -32,26 +36,28 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       className="group bg-white rounded-lg p-3 border border-slate-200/80 shadow-xs hover:shadow-lg hover:-translate-y-1 transition-all duration-200 flex flex-col justify-between gap-2.5"
     >
       {/* Framed Studio Photo */}
-      <button
-        type="button"
-        onClick={() => onSelectProduct(product)}
-        aria-label={`عرض تفاصيل ${product.nameAr}`}
-        className="relative aspect-[4/3] w-full rounded-md bg-[#F8F9FA] overflow-hidden text-right"
-      >
-        <img
-          src={imgSrc}
-          alt={product.nameAr}
-          referrerPolicy="no-referrer"
-          onError={() => {
-            const fallback = getFallbackProductArt(product.sku);
-            if (imgSrc !== fallback) setImgSrc(fallback);
-          }}
-          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-        />
+      <div className="relative aspect-[4/3] w-full rounded-md bg-[#F8F9FA] overflow-hidden">
+        <button
+          type="button"
+          onClick={() => onSelectProduct(product)}
+          aria-label={`عرض تفاصيل ${product.nameAr}`}
+          className="w-full h-full block text-right cursor-pointer"
+        >
+          <img
+            src={imgSrc}
+            alt={product.nameAr}
+            referrerPolicy="no-referrer"
+            onError={() => {
+              const fallback = getFallbackProductArt(product.sku);
+              if (imgSrc !== fallback) setImgSrc(fallback);
+            }}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        </button>
 
         {pricing.hasDiscount && (
           <span
-            className="absolute top-2 left-2 font-extrabold text-[11px] px-2 py-0.5 rounded tabular-nums shadow-xs"
+            className="absolute top-2 left-2 font-extrabold text-[11px] px-2 py-0.5 rounded tabular-nums shadow-xs pointer-events-none"
             style={{
               backgroundColor: 'var(--color-secondary)',
               color: 'var(--color-secondary-contrast)',
@@ -62,11 +68,29 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         )}
 
         {product.featured && (
-          <span className="absolute top-2 right-2 bg-[#1E293B]/90 text-white font-bold text-[10px] px-2 py-0.5 rounded">
+          <span className="absolute top-2 right-2 bg-[#1E293B]/90 text-white font-bold text-[10px] px-2 py-0.5 rounded pointer-events-none">
             الأكثر طلباً
           </span>
         )}
-      </button>
+
+        {onToggleWishlist && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleWishlist(product.id);
+            }}
+            aria-label={isWishlisted ? `إزالة ${product.nameAr} من المفضلة` : `إضافة ${product.nameAr} إلى المفضلة`}
+            className="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-white/95 hover:bg-white border border-slate-200/80 shadow-sm flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
+          >
+            <Heart
+              className={`w-4 h-4 transition-colors ${
+                isWishlisted ? 'fill-red-500 text-red-500' : 'text-slate-600'
+              }`}
+            />
+          </button>
+        )}
+      </div>
 
       {/* Product Info */}
       <div className="flex-1 flex flex-col justify-between gap-2">

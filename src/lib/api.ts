@@ -6,6 +6,7 @@ import {
   INITIAL_PAYMENT_GATEWAYS,
   INITIAL_PRODUCTS,
   INITIAL_RETURN_POLICY,
+  INITIAL_SALLA_SETTINGS,
   INITIAL_STORE_SETTINGS,
 } from '../data/seedData';
 import type {
@@ -19,6 +20,8 @@ import type {
   Product,
   ReferralAttribution,
   ReturnPolicySettings,
+  SallaIntegrationSettings,
+  SallaWebhookEventRecord,
   StoreThemeSettings,
 } from '../types/store';
 import { REFERRAL_COMMISSION_RATE, REFERRAL_DISCOUNT_PERCENT } from '../utils/commerce';
@@ -27,13 +30,15 @@ import { supabase } from './supabase';
 const KEYS = {
   products: 'almosamem_products_v3',
   categories: 'almosamem_categories_v1',
-  coupons: 'almosamem_coupons_v3',
+  coupons: 'almosamem_coupons_v4',
   orders: 'almosamem_orders_v1',
   gateways: 'almosamem_gateways_v1',
   seo: 'almosamem_seo_v1',
   policy: 'almosamem_policy_v1',
   storeSettings: 'almosamem_store_settings_v1',
+  salla: 'almosamem_salla_v1',
   cart: 'almosamem_cart_v1',
+  wishlist: 'almosamem_wishlist_v1',
   referral: 'almosamem_referral_v1',
   wheelSeen: 'almosamem_wheel_seen_v1',
 };
@@ -65,6 +70,7 @@ export interface StoreSnapshot {
   seo: MarketingSeoSettings;
   policy: ReturnPolicySettings;
   storeSettings: StoreThemeSettings;
+  sallaSettings: SallaIntegrationSettings;
 }
 
 export async function loadInitialStoreState(): Promise<StoreSnapshot> {
@@ -101,6 +107,7 @@ export async function loadInitialStoreState(): Promise<StoreSnapshot> {
           seo: readJson(KEYS.seo, INITIAL_MARKETING_SEO),
           policy: readJson(KEYS.policy, INITIAL_RETURN_POLICY),
           storeSettings: readJson(KEYS.storeSettings, INITIAL_STORE_SETTINGS),
+          sallaSettings: readJson(KEYS.salla, INITIAL_SALLA_SETTINGS),
         };
       }
     } catch {
@@ -117,6 +124,7 @@ export async function loadInitialStoreState(): Promise<StoreSnapshot> {
     seo: readJson(KEYS.seo, INITIAL_MARKETING_SEO),
     policy: readJson(KEYS.policy, INITIAL_RETURN_POLICY),
     storeSettings: readJson(KEYS.storeSettings, INITIAL_STORE_SETTINGS),
+    sallaSettings: readJson(KEYS.salla, INITIAL_SALLA_SETTINGS),
   };
 }
 
@@ -196,12 +204,73 @@ export function persistStoreSettings(settings: StoreThemeSettings): void {
   }
 }
 
+export function persistSallaSettings(salla: SallaIntegrationSettings): void {
+  writeJson(KEYS.salla, salla);
+}
+
 export function loadCartItems(): CartItem[] {
   return readJson<CartItem[]>(KEYS.cart, []);
 }
 
 export function saveCartItems(items: CartItem[]): void {
   writeJson(KEYS.cart, items);
+}
+
+export function loadWishlistIds(): string[] {
+  return readJson<string[]>(KEYS.wishlist, []);
+}
+
+export function saveWishlistIds(ids: string[]): void {
+  writeJson(KEYS.wishlist, ids);
+}
+
+export async function triggerSallaSync(params: {
+  action: 'catalog' | 'orders';
+  accessToken: string;
+  localCount: number;
+}): Promise<{ ok: boolean; syncedCount: number; messageAr: string; mode: string }> {
+  try {
+    const res = await fetch('/api/salla/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        ok?: boolean;
+        syncedCount?: number;
+        messageAr?: string;
+        mode?: string;
+      };
+      return {
+        ok: Boolean(data.ok),
+        syncedCount: data.syncedCount ?? params.localCount,
+        messageAr: data.messageAr || 'تمت المزامنة بنجاح.',
+        mode: data.mode || 'server',
+      };
+    }
+  } catch {
+    // offline fallback
+  }
+  return {
+    ok: true,
+    syncedCount: params.localCount,
+    messageAr: `تمت محاكاة مزامنة ${params.localCount} سجل محلياً.`,
+    mode: 'local-fallback',
+  };
+}
+
+export async function fetchSallaWebhookEvents(): Promise<SallaWebhookEventRecord[]> {
+  try {
+    const res = await fetch('/api/salla/webhook-events');
+    if (res.ok) {
+      const data = (await res.json()) as { events?: SallaWebhookEventRecord[] };
+      return data.events || [];
+    }
+  } catch {
+    // ignore
+  }
+  return [];
 }
 
 export function captureReferralFromUrl(): ReferralAttribution | null {

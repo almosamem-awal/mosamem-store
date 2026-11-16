@@ -49,6 +49,7 @@ export const DEFAULT_STORE_SETTINGS: StoreThemeSettings = {
   secondaryColor: '#FF6B00',
   logoUrl: '',
   themePreset: 'official_green',
+  wheelTargetCouponId: '',
 };
 
 /**

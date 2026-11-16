@@ -95,6 +95,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       setCustomerName((prev) => prev || currentUser.fullName);
       setCustomerEmail((prev) => prev || currentUser.email);
       setCustomerPhone((prev) => prev || currentUser.phone || '');
+      if (currentUser.defaultDistrict) {
+        setDistrict(currentUser.defaultDistrict);
+      }
+      if (currentUser.streetAddress) {
+        setStreetAddress((prev) => prev || currentUser.streetAddress || '');
+      }
     }
   }, [currentUser]);
 
@@ -176,7 +182,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   ];
 
   const handleApplyCoupon = () => {
-    const res = validateCoupon(couponInput, coupons);
+    const res = validateCoupon(couponInput, coupons, new Date(), {
+      subtotal: totals.subtotal,
+      items,
+      products,
+      categories,
+    });
     if (!res.valid || !res.coupon) {
       setCouponFeedback({ ok: false, message: res.errorAr || 'كوبون غير صالح' });
       onApplyCoupon(null);
@@ -185,7 +196,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     onApplyCoupon(res.coupon);
     setCouponFeedback({
       ok: true,
-      message: `تم تفعيل الكوبون ${res.coupon.code} بنجاح!`,
+      message: res.coupon.prizeMessageAr
+        ? `تم تفعيل الكوبون ${res.coupon.code}: ${res.coupon.prizeMessageAr}`
+        : `تم تفعيل الكوبون ${res.coupon.code} بنجاح!`,
     });
   };
 

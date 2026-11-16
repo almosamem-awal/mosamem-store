@@ -5,15 +5,19 @@ import {
   calculateInstallmentAmount,
   computeStockUrgencyPercent,
   computeStoreAnalytics,
+  describeCouponConditionAr,
   formatFlashCountdown,
   getEffectiveProductPrice,
   getFlashSaleProducts,
   getRelatedProducts,
+  hasAdminAccess,
   isAdminEmail,
   isPaymentMethodAllowed,
+  isSuperAdminEmail,
+  isSuperAdminUser,
   validateCoupon,
 } from './commerce';
-import type { Category, Coupon, Order, Product } from '../types/store';
+import type { AuthUser, Category, Coupon, Order, Product } from '../types/store';
 
 const sampleCategories: Category[] = [
   {
@@ -193,10 +197,131 @@ test('related products prioritize shared tags like magsafe and charging', () => 
   assert.equal(related[0].id, 'p2');
 });
 
-test('admin check authorizes designated admin emails', () => {
+test('admin and superadmin RBAC helpers verify roles accurately', () => {
+  assert.equal(isSuperAdminEmail('hosensoft@yahoo.com'), true);
+  assert.equal(isSuperAdminEmail('HOSENSOFT@YAHOO.COM'), true);
+  assert.equal(isSuperAdminEmail('admin@almosamem.com.sa'), false);
+
+  assert.equal(isAdminEmail('hosensoft@yahoo.com'), true);
   assert.equal(isAdminEmail('admin@almosamem.com.sa'), true);
   assert.equal(isAdminEmail('HAWASBROTHERS@GMAIL.COM'), true);
   assert.equal(isAdminEmail('customer@example.com'), false);
+
+  const superUser: AuthUser = {
+    id: 'u1',
+    email: 'hosensoft@yahoo.com',
+    fullName: 'SuperAdmin',
+    role: 'superadmin',
+    provider: 'email',
+  };
+  const regularAdmin: AuthUser = {
+    id: 'u2',
+    email: 'admin@almosamem.com.sa',
+    fullName: 'Admin',
+    role: 'admin',
+    provider: 'email',
+  };
+  const customerUser: AuthUser = {
+    id: 'u3',
+    email: 'customer@example.com',
+    fullName: 'Customer',
+    role: 'customer',
+    provider: 'email',
+  };
+
+  assert.equal(isSuperAdminUser(superUser), true);
+  assert.equal(isSuperAdminUser(regularAdmin), false);
+  assert.equal(hasAdminAccess(superUser), true);
+  assert.equal(hasAdminAccess(regularAdmin), true);
+  assert.equal(hasAdminAccess(customerUser), false);
+});
+
+test('conditional coupons enforce min_purchase, date_range, and category_or_brand rules', () => {
+  const minPurchaseCoupon: Coupon = {
+    id: 'cond-min',
+    code: 'MIN300',
+    discountType: 'fixed',
+    value: 50,
+    usageLimit: 100,
+    usedCount: 0,
+    expiresAt: '2099-01-01',
+    active: true,
+    isWheelReward: true,
+    conditionType: 'min_purchase',
+    minPurchaseAmount: 300,
+  };
+
+  assert.equal(
+    validateCoupon('MIN300', [minPurchaseCoupon], new Date(), { subtotal: 200 }).valid,
+    false
+  );
+  assert.equal(
+    validateCoupon('MIN300', [minPurchaseCoupon], new Date(), { subtotal: 350 }).valid,
+    true
+  );
+
+  const dateRangeCoupon: Coupon = {
+    id: 'cond-date',
+    code: 'NOVONLY',
+    discountType: 'percent',
+    value: 15,
+    usageLimit: 100,
+    usedCount: 0,
+    expiresAt: '2099-01-01',
+    active: true,
+    isWheelReward: false,
+    conditionType: 'date_range',
+    validFromDate: '2026-11-01',
+    validUntilDate: '2026-11-30',
+  };
+
+  assert.equal(
+    validateCoupon('NOVONLY', [dateRangeCoupon], new Date('2026-10-15T10:00:00Z')).valid,
+    false
+  );
+  assert.equal(
+    validateCoupon('NOVONLY', [dateRangeCoupon], new Date('2026-11-15T10:00:00Z')).valid,
+    true
+  );
+
+  const categoryCoupon: Coupon = {
+    id: 'cond-cat',
+    code: 'STEM20',
+    discountType: 'percent',
+    value: 20,
+    usageLimit: 100,
+    usedCount: 0,
+    expiresAt: '2099-01-01',
+    active: true,
+    isWheelReward: false,
+    conditionType: 'category_or_brand',
+    targetCategoryId: 'cat-stem',
+  };
+
+  // Cart only has cat-phone item (p1) -> should fail validation
+  assert.equal(
+    validateCoupon('STEM20', [categoryCoupon], new Date(), {
+      subtotal: 200,
+      items: [{ productId: 'p1', quantity: 1 }],
+      products: sampleProducts,
+      categories: sampleCategories,
+    }).valid,
+    false
+  );
+
+  // Mixed cart (p1 = 200 phone, p3 = 400 effective stem) -> 20% applies ONLY to 400 SAR stem item = 80
+  const mixedTotals = calculateCartTotals({
+    items: [
+      { productId: 'p1', quantity: 1 },
+      { productId: 'p3', quantity: 1 },
+    ],
+    products: sampleProducts,
+    categories: sampleCategories,
+    coupon: categoryCoupon,
+  });
+  assert.equal(mixedTotals.subtotal, 600);
+  assert.equal(mixedTotals.couponDiscount, 80);
+  assert.match(describeCouponConditionAr(categoryCoupon, sampleCategories), /الألعاب الذكية/);
 });
 
 test('store analytics compute revenue, gross profit, AOV, and return rate', () => {

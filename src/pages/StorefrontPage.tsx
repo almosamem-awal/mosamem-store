@@ -20,7 +20,7 @@ import {
 import { getFallbackProductArt } from '../data/seedData';
 import { HeroSection } from '../components/HeroSection';
 import { ProductCard } from '../components/ProductCard';
-import { BrandLogo } from '../components/BrandLogo';
+import { Footer } from '../components/Footer';
 import type { MarketplaceQuickFilter } from '../components/Navbar';
 
 interface StorefrontPageProps {
@@ -28,6 +28,7 @@ interface StorefrontPageProps {
   categories: Category[];
   referralCode: string | null;
   logoUrl?: string;
+  wishlistIds: string[];
   searchQuery: string;
   selectedCategoryId: string;
   specialFilter: MarketplaceQuickFilter;
@@ -36,10 +37,10 @@ interface StorefrontPageProps {
   onSelectSpecialFilter: (filter: MarketplaceQuickFilter) => void;
   onSelectProduct: (product: Product) => void;
   onQuickAdd: (product: Product) => void;
+  onToggleWishlist: (productId: string) => void;
   onApplyCouponCode: (code: string) => void;
   onOpenWheel: () => void;
   onOpenPolicy: () => void;
-  onNavigateAdmin: () => void;
 }
 
 export const StorefrontPage: React.FC<StorefrontPageProps> = ({
@@ -47,6 +48,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   categories,
   referralCode,
   logoUrl,
+  wishlistIds,
   searchQuery,
   selectedCategoryId,
   specialFilter,
@@ -55,10 +57,10 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   onSelectSpecialFilter,
   onSelectProduct,
   onQuickAdd,
+  onToggleWishlist,
   onApplyCouponCode,
   onOpenWheel,
   onOpenPolicy,
-  onNavigateAdmin,
 }) => {
   const [maxPrice, setMaxPrice] = useState<number>(1000);
   const [sortBy, setSortBy] = useState<'featured' | 'top_rated' | 'price_asc' | 'price_desc'>(
@@ -861,6 +863,8 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                 key={product.id}
                 product={product}
                 categories={categories}
+                isWishlisted={wishlistIds.includes(product.id)}
+                onToggleWishlist={onToggleWishlist}
                 onSelectProduct={onSelectProduct}
                 onQuickAdd={onQuickAdd}
               />
@@ -924,25 +928,12 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div>
       </section>
 
-      {/* 8. Slate Charcoal Footer */}
-      <footer className="bg-[#0B0F19] text-white mt-6">
-        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <BrandLogo variant="lockup-dark" logoUrl={logoUrl} />
-
-          <div className="flex flex-wrap items-center justify-center gap-5 text-xs text-slate-300">
-            <button type="button" onClick={onOpenPolicy} className="hover:text-[#00FF87] font-medium transition-colors">
-              سياسة الاسترجاع والضمان
-            </button>
-            <button type="button" onClick={onOpenWheel} className="hover:text-[#00FF87] font-medium transition-colors">
-              عجلة الحظ
-            </button>
-            <button type="button" onClick={onNavigateAdmin} className="hover:text-[#00FF87] font-medium transition-colors">
-              لوحة الإدارة (/admin)
-            </button>
-            <span className="font-mono text-[#00FF87]">almosamem.com.sa · الرياض</span>
-          </div>
-        </div>
-      </footer>
+      {/* 8. Footer with Safeer Marketing attribution and zero public admin links */}
+      <Footer
+        logoUrl={logoUrl}
+        onOpenPolicy={onOpenPolicy}
+        onOpenWheel={onOpenWheel}
+      />
     </div>
   );
 };

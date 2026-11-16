@@ -1,4 +1,5 @@
 import type {
+  AuthUser,
   CartItem,
   Category,
   Coupon,
@@ -13,7 +14,12 @@ export const STANDARD_RIYADH_SHIPPING_SAR = 25;
 export const REFERRAL_DISCOUNT_PERCENT = 5;
 export const REFERRAL_COMMISSION_RATE = 0.05;
 
-export const ADMIN_EMAILS = ['admin@almosamem.com.sa', 'hawasbrothers@gmail.com'];
+export const SUPERADMIN_EMAIL = 'hosensoft@yahoo.com';
+export const ADMIN_EMAILS = [
+  SUPERADMIN_EMAIL,
+  'admin@almosamem.com.sa',
+  'hawasbrothers@gmail.com',
+];
 
 export const RIYADH_DISTRICTS = [
   'حي الملقا',
@@ -34,9 +40,24 @@ export const RIYADH_DISTRICTS = [
   'حي المحمدية',
 ] as const;
 
+export function isSuperAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return email.trim().toLowerCase() === SUPERADMIN_EMAIL;
+}
+
 export function isAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   return ADMIN_EMAILS.includes(email.trim().toLowerCase());
+}
+
+export function isSuperAdminUser(user?: AuthUser | null): boolean {
+  if (!user) return false;
+  return user.role === 'superadmin' || isSuperAdminEmail(user.email);
+}
+
+export function hasAdminAccess(user?: AuthUser | null): boolean {
+  if (!user) return false;
+  return user.role === 'superadmin' || user.role === 'admin' || isAdminEmail(user.email);
 }
 
 export interface EffectivePricing {
@@ -129,16 +150,91 @@ export function calculateInstallmentAmount(totalAmount: number, installments = 4
   return Number((totalAmount / installments).toFixed(2));
 }
 
+export interface CouponValidationContext {
+  subtotal?: number;
+  items?: CartItem[];
+  products?: Product[];
+  categories?: Category[];
+}
+
 export interface CouponValidationResult {
   valid: boolean;
   coupon?: Coupon;
   errorAr?: string;
 }
 
+function parseMinPurchaseThreshold(coupon: Coupon): number {
+  if (typeof coupon.minPurchaseAmount === 'number' && coupon.minPurchaseAmount > 0) {
+    return coupon.minPurchaseAmount;
+  }
+  const num = Number((coupon.conditionDetails || '').replace(/[^\d.]/g, ''));
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+function parseDateRangeBounds(coupon: Coupon): { from?: string; until?: string } {
+  if (coupon.validFromDate || coupon.validUntilDate) {
+    return {
+      from: coupon.validFromDate?.trim() || undefined,
+      until: coupon.validUntilDate?.trim() || undefined,
+    };
+  }
+  const raw = (coupon.conditionDetails || '').trim();
+  if (!raw) return {};
+  const parts = raw.split(/\s*(?:\||:|إلى|to|,)\s*/i).filter(Boolean);
+  if (parts.length >= 2) {
+    return { from: parts[0], until: parts[1] };
+  }
+  return { from: parts[0] };
+}
+
+function doesProductMatchCategoryOrBrand(
+  product: Product,
+  categories: Category[],
+  targetRaw: string
+): boolean {
+  const target = targetRaw.trim().toLowerCase();
+  if (!target) return true;
+  if (product.categoryId.toLowerCase() === target) return true;
+  const cat = categories.find((c) => c.id === product.categoryId);
+  if (
+    cat &&
+    (cat.nameAr.toLowerCase().includes(target) ||
+      cat.nameEn.toLowerCase().includes(target) ||
+      cat.slug.toLowerCase() === target)
+  ) {
+    return true;
+  }
+  if (
+    product.nameAr.toLowerCase().includes(target) ||
+    product.nameEn.toLowerCase().includes(target) ||
+    product.tags.some((t) => t.toLowerCase().includes(target))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function describeCouponConditionAr(coupon: Coupon, categories: Category[] = []): string {
+  const type = coupon.conditionType || 'none';
+  if (type === 'none') return 'بدون شروط مسبقة — يطبق على جميع الطلبات';
+  if (type === 'min_purchase') {
+    const threshold = parseMinPurchaseThreshold(coupon);
+    return `أن يتجاوز إجمالي المشتريات ${formatSAR(threshold || 0)}`;
+  }
+  if (type === 'date_range') {
+    const bounds = parseDateRangeBounds(coupon);
+    return `صالح في الفترة من ${bounds.from || '—'} إلى ${bounds.until || '—'}`;
+  }
+  const target = coupon.targetCategoryId || coupon.conditionDetails || '';
+  const cat = categories.find((c) => c.id === target);
+  return `ينطبق حصرياً على: ${cat ? cat.nameAr : target || 'التصنيف المحدد'}`;
+}
+
 export function validateCoupon(
   codeInput: string,
   coupons: Coupon[],
-  nowDate: Date = new Date()
+  nowDate: Date = new Date(),
+  context?: CouponValidationContext
 ): CouponValidationResult {
   const normalized = codeInput.trim().toUpperCase();
   if (!normalized) {
@@ -159,6 +255,65 @@ export function validateCoupon(
     const expiry = new Date(found.expiresAt);
     if (!Number.isNaN(expiry.getTime()) && expiry.getTime() < nowDate.getTime()) {
       return { valid: false, errorAr: 'انتهت صلاحية هذا الكوبون.' };
+    }
+  }
+
+  const condType = found.conditionType || 'none';
+
+  if (condType === 'date_range') {
+    const bounds = parseDateRangeBounds(found);
+    if (bounds.from) {
+      const start = new Date(bounds.from);
+      if (!Number.isNaN(start.getTime()) && nowDate.getTime() < start.getTime()) {
+        return {
+          valid: false,
+          errorAr: `هذا الكوبون يبدأ تفعيله في تاريخ ${bounds.from}.`,
+        };
+      }
+    }
+    if (bounds.until) {
+      const end = new Date(bounds.until);
+      end.setHours(23, 59, 59, 999);
+      if (!Number.isNaN(end.getTime()) && nowDate.getTime() > end.getTime()) {
+        return {
+          valid: false,
+          errorAr: `انتهت فترة العرض الخاصة بهذا الكوبون (${bounds.until}).`,
+        };
+      }
+    }
+  }
+
+  if (condType === 'min_purchase' && context && typeof context.subtotal === 'number') {
+    const minAmount = parseMinPurchaseThreshold(found);
+    if (minAmount > 0 && context.subtotal < minAmount) {
+      return {
+        valid: false,
+        errorAr: `يتطلب هذا الكوبون أن تتجاوز مشترياتك ${formatSAR(minAmount)} (سلتك الحالية ${formatSAR(context.subtotal)}).`,
+      };
+    }
+  }
+
+  if (
+    condType === 'category_or_brand' &&
+    context?.items &&
+    context.items.length > 0 &&
+    context.products
+  ) {
+    const target = found.targetCategoryId || found.conditionDetails || '';
+    if (target.trim()) {
+      const hasMatch = context.items.some((item) => {
+        const prod = context.products?.find((p) => p.id === item.productId);
+        return prod
+          ? doesProductMatchCategoryOrBrand(prod, context.categories || [], target)
+          : false;
+      });
+      if (!hasMatch) {
+        const cat = context.categories?.find((c) => c.id === target);
+        return {
+          valid: false,
+          errorAr: `هذا الكوبون مخصص لمنتجات (${cat ? cat.nameAr : target}) فقط.`,
+        };
+      }
     }
   }
 
@@ -183,32 +338,57 @@ export function calculateCartTotals(params: {
   categories: Category[];
   coupon?: Coupon | null;
   referralCode?: string | null;
+  nowDate?: Date;
 }): CartTotals {
-  const { items, products, categories, coupon, referralCode } = params;
+  const { items, products, categories, coupon, referralCode, nowDate = new Date() } = params;
 
   let subtotal = 0;
   let itemCount = 0;
+  let eligibleSubtotalForCategory = 0;
+
+  const targetCatOrBrand =
+    coupon && coupon.conditionType === 'category_or_brand'
+      ? (coupon.targetCategoryId || coupon.conditionDetails || '').trim()
+      : '';
 
   for (const item of items) {
     const product = products.find((p) => p.id === item.productId);
     if (!product || item.quantity <= 0) continue;
     const { effectivePrice } = getEffectiveProductPrice(product, categories);
-    subtotal += effectivePrice * item.quantity;
+    const lineTotal = effectivePrice * item.quantity;
+    subtotal += lineTotal;
     itemCount += item.quantity;
+
+    if (
+      !targetCatOrBrand ||
+      doesProductMatchCategoryOrBrand(product, categories, targetCatOrBrand)
+    ) {
+      eligibleSubtotalForCategory += lineTotal;
+    }
   }
 
   subtotal = Number(subtotal.toFixed(2));
+  eligibleSubtotalForCategory = Number(eligibleSubtotalForCategory.toFixed(2));
 
   let couponDiscount = 0;
   let waivesShipping = false;
 
   if (coupon && subtotal > 0) {
-    if (coupon.discountType === 'percent') {
-      couponDiscount = Number(((subtotal * coupon.value) / 100).toFixed(2));
-    } else if (coupon.discountType === 'fixed') {
-      couponDiscount = Number(Math.min(subtotal, coupon.value).toFixed(2));
-    } else if (coupon.discountType === 'free_shipping') {
-      waivesShipping = true;
+    const condCheck = validateCoupon(coupon.code, [coupon], nowDate, {
+      subtotal,
+      items,
+      products,
+      categories,
+    });
+    if (condCheck.valid) {
+      const discountBase = targetCatOrBrand ? eligibleSubtotalForCategory : subtotal;
+      if (coupon.discountType === 'percent' && discountBase > 0) {
+        couponDiscount = Number(((discountBase * coupon.value) / 100).toFixed(2));
+      } else if (coupon.discountType === 'fixed' && discountBase > 0) {
+        couponDiscount = Number(Math.min(discountBase, coupon.value).toFixed(2));
+      } else if (coupon.discountType === 'free_shipping') {
+        waivesShipping = true;
+      }
     }
   }
 

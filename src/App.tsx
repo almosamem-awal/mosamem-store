@@ -10,6 +10,7 @@ import type {
   PaymentGatewaysSettings,
   Product,
   ReturnPolicySettings,
+  SallaIntegrationSettings,
 } from './types/store';
 import {
   INITIAL_CATEGORIES,
@@ -19,6 +20,7 @@ import {
   INITIAL_PAYMENT_GATEWAYS,
   INITIAL_PRODUCTS,
   INITIAL_RETURN_POLICY,
+  INITIAL_SALLA_SETTINGS,
   INITIAL_STORE_SETTINGS,
 } from './data/seedData';
 import {
@@ -27,20 +29,23 @@ import {
   hasSeenLuckyWheel,
   loadCartItems,
   loadInitialStoreState,
+  loadWishlistIds,
   markLuckyWheelSeen,
   persistCategories,
   persistCoupons,
   persistGateways,
   persistProducts,
   persistReturnPolicy,
+  persistSallaSettings,
   persistSeoSettings,
   persistStoreSettings,
   saveCartItems,
+  saveWishlistIds,
   updateOrderStatusRecord,
 } from './lib/api';
-import { getCurrentSessionUser } from './lib/supabase';
+import { getCurrentSessionUser, signOutUser } from './lib/supabase';
 import { syncSeoAndPixels, trackPixelEvent } from './lib/analytics';
-import { validateCoupon } from './utils/commerce';
+import { calculateCartTotals, validateCoupon } from './utils/commerce';
 import { buildThemeCssVariables } from './utils/theme';
 import { Navbar, type MarketplaceQuickFilter } from './components/Navbar';
 import { StorefrontPage } from './pages/StorefrontPage';
@@ -51,11 +56,24 @@ import { AuthModal } from './components/AuthModal';
 import { CheckoutModal } from './components/CheckoutModal';
 import { LuckySpinWheelModal } from './components/LuckySpinWheelModal';
 import { ReturnPolicyModal } from './components/ReturnPolicyModal';
+import {
+  CustomerAccountModal,
+  type CustomerPortalTab,
+} from './components/CustomerAccountModal';
+
+function resolveRouteView(pathname: string): 'store' | 'admin' {
+  return pathname === '/admino' || pathname.startsWith('/admino/') ? 'admin' : 'store';
+}
 
 export default function App() {
-  const [activeView, setActiveView] = useState<'store' | 'admin'>(() =>
-    window.location.pathname.startsWith('/admin') ? 'admin' : 'store'
-  );
+  const [activeView, setActiveView] = useState<'store' | 'admin'>(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/admin') && !path.startsWith('/admino')) {
+      window.history.replaceState({}, '', '/');
+      return 'store';
+    }
+    return resolveRouteView(path);
+  });
 
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
@@ -65,9 +83,12 @@ export default function App() {
   const [seoSettings, setSeoSettings] = useState<MarketingSeoSettings>(INITIAL_MARKETING_SEO);
   const [returnPolicy, setReturnPolicy] = useState<ReturnPolicySettings>(INITIAL_RETURN_POLICY);
   const [storeSettings, setStoreSettings] = useState(INITIAL_STORE_SETTINGS);
+  const [sallaSettings, setSallaSettings] =
+    useState<SallaIntegrationSettings>(INITIAL_SALLA_SETTINGS);
 
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>(() => loadCartItems());
+  const [wishlistIds, setWishlistIds] = useState<string[]>(() => loadWishlistIds());
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [referralCode, setReferralCode] = useState<string | null>(null);
 
@@ -75,6 +96,8 @@ export default function App() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isAccountPortalOpen, setIsAccountPortalOpen] = useState(false);
+  const [accountPortalTab, setAccountPortalTab] = useState<CustomerPortalTab>('profile');
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isWheelOpen, setIsWheelOpen] = useState(false);
   const [isPolicyOpen, setIsPolicyOpen] = useState(false);
@@ -97,6 +120,7 @@ export default function App() {
       setSeoSettings(snapshot.seo);
       setReturnPolicy(snapshot.policy);
       setStoreSettings(snapshot.storeSettings);
+      setSallaSettings(snapshot.sallaSettings);
       syncSeoAndPixels(snapshot.seo);
     });
 
@@ -110,7 +134,13 @@ export default function App() {
     }
 
     const handlePopState = () => {
-      setActiveView(window.location.pathname.startsWith('/admin') ? 'admin' : 'store');
+      const path = window.location.pathname;
+      if (path.startsWith('/admin') && !path.startsWith('/admino')) {
+        window.history.replaceState({}, '', '/');
+        setActiveView('store');
+        return;
+      }
+      setActiveView(resolveRouteView(path));
     };
     window.addEventListener('popstate', handlePopState);
 
@@ -135,6 +165,10 @@ export default function App() {
     saveCartItems(cartItems);
   }, [cartItems]);
 
+  useEffect(() => {
+    saveWishlistIds(wishlistIds);
+  }, [wishlistIds]);
+
   const themeCssVars = buildThemeCssVariables(storeSettings);
 
   useEffect(() => {
@@ -146,11 +180,17 @@ export default function App() {
 
   const navigateView = (view: 'store' | 'admin') => {
     setActiveView(view);
-    const targetPath = view === 'admin' ? '/admin' : '/';
+    const targetPath = view === 'admin' ? '/admino' : '/';
     if (window.location.pathname !== targetPath) {
       window.history.pushState({}, '', targetPath);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleToggleWishlist = (productId: string) => {
+    setWishlistIds((prev) =>
+      prev.includes(productId) ? prev.filter((id) => id !== productId) : [...prev, productId]
+    );
   };
 
   const handleAddToCart = (product: Product, variantId?: string, quantity = 1) => {
@@ -248,10 +288,31 @@ export default function App() {
   };
 
   const handleApplyCouponCode = (code: string) => {
-    const validation = validateCoupon(code, coupons);
+    const subtotalOnly = calculateCartTotals({
+      items: cartItems,
+      products,
+      categories,
+    }).subtotal;
+    const validation = validateCoupon(code, coupons, new Date(), {
+      subtotal: cartItems.length > 0 ? subtotalOnly : undefined,
+      items: cartItems.length > 0 ? cartItems : undefined,
+      products,
+      categories,
+    });
     if (validation.valid && validation.coupon) {
       setAppliedCoupon(validation.coupon);
+    } else {
+      const fallback = coupons.find((c) => c.code.toUpperCase() === code.trim().toUpperCase());
+      if (fallback && fallback.active) {
+        setAppliedCoupon(fallback);
+      }
     }
+  };
+
+  const handleSignOut = async () => {
+    await signOutUser();
+    setCurrentUser(null);
+    setIsAccountPortalOpen(false);
   };
 
   const totalCartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -264,6 +325,7 @@ export default function App() {
     >
       <Navbar
         cartCount={totalCartCount}
+        wishlistCount={wishlistIds.length}
         currentUser={currentUser}
         activeView={activeView}
         products={products}
@@ -284,6 +346,11 @@ export default function App() {
         onNavigateView={navigateView}
         onOpenCart={() => setIsCartOpen(true)}
         onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenAccountPortal={(tab) => {
+          setAccountPortalTab(tab);
+          setIsAccountPortalOpen(true);
+        }}
+        onSignOut={() => void handleSignOut()}
         onOpenWheel={() => {
           markLuckyWheelSeen();
           setIsWheelOpen(true);
@@ -309,6 +376,7 @@ export default function App() {
             seoSettings={seoSettings}
             returnPolicy={returnPolicy}
             storeSettings={storeSettings}
+            sallaSettings={sallaSettings}
             onAuthenticated={(user) => setCurrentUser(user)}
             onSaveProducts={(next) => {
               setProducts(next);
@@ -345,6 +413,10 @@ export default function App() {
               setStoreSettings(next);
               persistStoreSettings(next);
             }}
+            onSaveSallaSettings={(next) => {
+              setSallaSettings(next);
+              persistSallaSettings(next);
+            }}
             onBackToStore={() => navigateView('store')}
           />
         ) : (
@@ -353,6 +425,7 @@ export default function App() {
             categories={categories}
             referralCode={referralCode}
             logoUrl={storeSettings.logoUrl}
+            wishlistIds={wishlistIds}
             searchQuery={searchQuery}
             selectedCategoryId={selectedCategoryId}
             specialFilter={specialFilter}
@@ -361,13 +434,13 @@ export default function App() {
             onSelectSpecialFilter={setSpecialFilter}
             onSelectProduct={(p) => setSelectedProduct(p)}
             onQuickAdd={(p) => handleAddToCart(p, p.variants[0]?.id, 1)}
+            onToggleWishlist={handleToggleWishlist}
             onApplyCouponCode={handleApplyCouponCode}
             onOpenWheel={() => {
               markLuckyWheelSeen();
               setIsWheelOpen(true);
             }}
             onOpenPolicy={() => setIsPolicyOpen(true)}
-            onNavigateAdmin={() => navigateView('admin')}
           />
         )}
       </main>
@@ -377,6 +450,8 @@ export default function App() {
         product={selectedProduct}
         allProducts={products}
         categories={categories}
+        isWishlisted={selectedProduct ? wishlistIds.includes(selectedProduct.id) : false}
+        onToggleWishlist={handleToggleWishlist}
         onClose={() => setSelectedProduct(null)}
         onSelectProduct={(p) => setSelectedProduct(p)}
         onAddToCart={handleAddToCart}
@@ -411,6 +486,23 @@ export default function App() {
         showGuestOption={cartItems.length > 0}
       />
 
+      <CustomerAccountModal
+        isOpen={isAccountPortalOpen}
+        initialTab={accountPortalTab}
+        currentUser={currentUser}
+        orders={orders}
+        products={products}
+        categories={categories}
+        wishlistIds={wishlistIds}
+        onClose={() => setIsAccountPortalOpen(false)}
+        onUserUpdated={(user) => setCurrentUser(user)}
+        onToggleWishlist={handleToggleWishlist}
+        onQuickAddToCart={(p) => {
+          handleAddToCart(p, p.variants[0]?.id, 1);
+          setIsAccountPortalOpen(false);
+        }}
+      />
+
       <CheckoutModal
         isOpen={isCheckoutOpen}
         items={cartItems}
@@ -433,6 +525,7 @@ export default function App() {
       <LuckySpinWheelModal
         isOpen={isWheelOpen}
         coupons={coupons}
+        targetCouponId={storeSettings.wheelTargetCouponId}
         onClose={() => {
           markLuckyWheelSeen();
           setIsWheelOpen(false);

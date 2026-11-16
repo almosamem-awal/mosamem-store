@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { X, Clock, ShoppingCart, Sparkles, Check } from 'lucide-react';
 import type { Coupon } from '../types/store';
-import { formatFlashCountdown } from '../utils/commerce';
+import { describeCouponConditionAr, formatFlashCountdown } from '../utils/commerce';
 import { DEFAULT_TEMU_JUMIA_SLICES, SpinWheelVisual, type WheelSliceSpec } from './SpinWheelVisual';
 
 interface LuckySpinWheelModalProps {
   isOpen: boolean;
   coupons: Coupon[];
+  targetCouponId?: string;
   onClose: () => void;
   onApplyCouponCode: (code: string) => void;
   onAppliedAndProceed?: () => void;
@@ -18,6 +19,7 @@ const SLICE_PALETTE = ['#059669', '#FACC15', '#FF6B00', '#FFFFFF', '#059669', '#
 export const LuckySpinWheelModal: React.FC<LuckySpinWheelModalProps> = ({
   isOpen,
   coupons,
+  targetCouponId,
   onClose,
   onApplyCouponCode,
   onAppliedAndProceed,
@@ -141,7 +143,11 @@ export const LuckySpinWheelModal: React.FC<LuckySpinWheelModalProps> = ({
     setWonCoupon(null);
     setAppliedNotice(false);
 
-    const chosenIndex = Math.floor(Math.random() * segments.length);
+    const riggedIdx =
+      targetCouponId && targetCouponId.trim()
+        ? segments.findIndex((seg) => seg.id === targetCouponId || seg.code === targetCouponId)
+        : -1;
+    const chosenIndex = riggedIdx >= 0 ? riggedIdx : Math.floor(Math.random() * segments.length);
     const chosen = segments[chosenIndex];
     const targetSliceCenter = chosenIndex * sliceAngle + sliceAngle / 2;
     const extraSpins = 360 * 6;
@@ -239,6 +245,16 @@ export const LuckySpinWheelModal: React.FC<LuckySpinWheelModalProps> = ({
                 <h3 className="font-display text-xl sm:text-2xl font-black text-[#1E293B]">
                   ربحت {wonCoupon.wheelLabel || wonCoupon.code}!
                 </h3>
+                {wonCoupon.prizeMessageAr && (
+                  <p className="text-xs sm:text-sm font-semibold text-slate-700 leading-relaxed bg-white/80 rounded-xl px-3 py-2 border border-amber-200">
+                    {wonCoupon.prizeMessageAr}
+                  </p>
+                )}
+                {wonCoupon.conditionType && wonCoupon.conditionType !== 'none' && (
+                  <div className="text-[11px] font-semibold text-slate-600">
+                    الشرط: {describeCouponConditionAr(wonCoupon)}
+                  </div>
+                )}
               </div>
 
               {/* Urgency Countdown */}

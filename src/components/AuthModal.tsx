@@ -143,7 +143,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-[#0B0F19]">{currentUser.fullName}</span>
                   <span className="text-xs font-semibold text-[#059669]">
-                    {currentUser.role === 'admin' ? 'مدير النظام' : 'عضو موثق'}
+                    {currentUser.role === 'superadmin'
+                      ? 'المدير التنفيذي SuperAdmin'
+                      : currentUser.role === 'admin'
+                      ? 'مشرف المتجر'
+                      : 'عميل موثق'}
                   </span>
                 </div>
                 <div className="text-xs text-slate-600">{currentUser.email}</div>
@@ -238,7 +242,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.99 3.14c.95-2.85 3.6-4.96 6.72-4.96z"
                       />
                     </svg>
-                    <span>المتابعة بحساب Google</span>
+                    <span>الدخول بجوجل</span>
                   </button>
 
                   <div className="relative flex items-center justify-center">
@@ -291,17 +295,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                 <div>
                   <label htmlFor="auth-email" className="block text-xs font-semibold text-slate-700 mb-1">
-                    البريد الإلكتروني
+                    {tab === 'login' ? 'البريد الإلكتروني أو رقم الجوال' : 'البريد الإلكتروني'}
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
                     <input
                       id="auth-email"
-                      type="email"
+                      type={tab === 'login' ? 'text' : 'email'}
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@example.com"
+                      placeholder={tab === 'login' ? 'name@example.com أو 05XXXXXXXX' : 'name@example.com'}
                       className="w-full pr-9 pl-3 py-2.5 rounded-lg border border-slate-300 text-sm focus:border-[#059669] focus:outline-none"
                     />
                   </div>
@@ -372,20 +376,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </span>
                 </button>
               </form>
-
-              {tab === 'login' && (
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
-                  <div className="font-semibold text-slate-800">حسابات تجريبية سريعة:</div>
-                  <div>
-                    عميل الرياض: <span className="font-mono">riyadh@almosamem.com.sa</span> /{' '}
-                    <span className="font-mono">Riyadh123!</span>
-                  </div>
-                  <div>
-                    مدير المتجر: <span className="font-mono">admin@almosamem.com.sa</span> /{' '}
-                    <span className="font-mono">Admin123!</span>
-                  </div>
-                </div>
-              )}
 
               {showGuestOption && onContinueAsGuest && (
                 <button
