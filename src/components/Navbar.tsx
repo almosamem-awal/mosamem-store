@@ -146,7 +146,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <div className="flex items-center gap-3 sm:gap-5 shrink-0">
             <span className="font-mono font-semibold text-[#059669] hidden sm:inline">
-              almosamem.com.sa · الرياض
+              almosamem.com.sa
             </span>
           </div>
         </div>

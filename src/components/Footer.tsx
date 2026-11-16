@@ -49,7 +49,7 @@ export const Footer: React.FC<FooterProps> = ({
             </span>
 
             <span className="font-mono text-[#00FF87] font-semibold">
-              almosamem.com.sa · الرياض
+              almosamem.com.sa
             </span>
           </div>
         </div>
