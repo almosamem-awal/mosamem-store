@@ -15,10 +15,12 @@ if (fs.existsSync(distDir)) {
     path.resolve(rootDir, '../public_html'),
     path.resolve(rootDir, '../../public_html'),
     path.resolve(rootDir, '../../../public_html'),
-    // 2. Live server document root
+    // 2. Repo public_html (Hostinger deployment sync root!)
+    path.join(rootDir, 'public_html'),
+    // 3. Live server document root
     '/home/u910668982/domains/almosamem.com.sa/public_html',
     '/home/u910668982/public_html',
-    // 3. Workspace public directory
+    // 4. Workspace public directory
     path.join(rootDir, 'public'),
   ];
 
