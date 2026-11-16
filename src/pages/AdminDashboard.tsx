@@ -22,7 +22,6 @@ import {
   UserCog,
   Store,
   RefreshCw,
-  ShieldAlert,
   KeyRound,
   X,
   PhoneCall,
@@ -242,17 +241,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   }, [currentUser]);
 
-  useEffect(() => {
-    if (activeTab === 'users') {
-      setManagedUsers(listManagedUsers());
-    }
-    if (activeTab === 'salla') {
-      void fetchSallaWebhookEvents().then(setSallaEvents);
-    }
-  }, [activeTab]);
-
   const isAuthorizedAdmin = hasAdminAccess(currentUser);
   const isSuperAdmin = isSuperAdminUser(currentUser);
+
+  useEffect(() => {
+    if (!isSuperAdmin && SUPERADMIN_ONLY_TABS.includes(activeTab)) {
+      setActiveTab('analytics');
+    }
+  }, [activeTab, isSuperAdmin]);
+
+  useEffect(() => {
+    if (isSuperAdmin && activeTab === 'users') {
+      setManagedUsers(listManagedUsers());
+    }
+    if (isSuperAdmin && activeTab === 'salla') {
+      void fetchSallaWebhookEvents().then(setSallaEvents);
+    }
+  }, [activeTab, isSuperAdmin]);
 
   const showSaved = (msg: string) => {
     setSavedNotice(msg);
@@ -583,7 +588,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     { id: 'policy', label: 'سياسة الاسترجاع', icon: <FileText className="w-4 h-4" /> },
   ];
 
-  const isRestrictedTab = SUPERADMIN_ONLY_TABS.includes(activeTab) && !isSuperAdmin;
+  const visibleNavItems = navItems.filter((item) => !item.superOnly || isSuperAdmin);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
@@ -604,9 +609,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <nav aria-label="أقسام لوحة الإدارة" className="bg-white rounded-xl border border-slate-200 p-2 space-y-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const active = activeTab === item.id;
-              const locked = Boolean(item.superOnly && !isSuperAdmin);
               return (
                 <button
                   key={item.id}
@@ -615,8 +619,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-colors text-right cursor-pointer ${
                     active
                       ? 'bg-[#0B0F19] text-white'
-                      : locked
-                      ? 'text-slate-400 hover:bg-slate-50'
                       : 'text-slate-600 hover:bg-slate-100 hover:text-[#0B0F19]'
                   }`}
                 >
@@ -626,7 +628,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </span>
                     <span className="truncate">{item.label}</span>
                   </span>
-                  {locked && <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                 </button>
               );
             })}
@@ -653,30 +654,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
-          {/* SUPERADMIN ACCESS GUARD FOR SENSITIVE TABS */}
-          {isRestrictedTab ? (
-            <div className="bg-white rounded-2xl border-2 border-amber-300 p-8 text-center space-y-4 shadow-sm">
-              <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
-                <ShieldAlert className="w-7 h-7" />
-              </div>
-              <h2 className="font-display text-xl font-extrabold text-[#0B0F19]">
-                صلاحية مقتصرة على مدير التطبيق SuperAdmin
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
-                بصفتك مشرف متجر، تقتصر صلاحياتك على إدارة المنتجات والأقسام والطلبات والكوبونات. إعدادات مفاتيح API وبوابات الدفع، الهوية والشعار، وربط سلة، وإدارة الحسابات متاحة حصرياً للمدير التنفيذي SuperAdmin.
-              </p>
-              <button
-                type="button"
-                onClick={() => setActiveTab('analytics')}
-                className="px-5 py-2.5 rounded-lg bg-[#0B0F19] text-white text-xs font-bold cursor-pointer"
-              >
-                العودة للتحليلات التنفيذية
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* 1. BRANDING & DYNAMIC THEME MANAGER */}
-              {activeTab === 'branding' && (
+          <>
+              {/* 1. BRANDING & DYNAMIC THEME MANAGER (SUPERADMIN ONLY) */}
+              {isSuperAdmin && activeTab === 'branding' && (
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2086,8 +2066,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
-          {/* 6. PAYMENT GATEWAYS API */}
-          {activeTab === 'gateways' && (
+          {/* 6. PAYMENT GATEWAYS API (SUPERADMIN ONLY) */}
+          {isSuperAdmin && activeTab === 'gateways' && (
             <div className="space-y-5">
               <div className="flex items-center justify-between">
                 <div>
@@ -2350,7 +2330,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
 
           {/* 9. SALLA INTEGRATION HUB (SUPERADMIN ONLY) */}
-          {activeTab === 'salla' && (
+          {isSuperAdmin && activeTab === 'salla' && (
             <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -2556,7 +2536,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
 
           {/* 10. USER & ADMINISTRATOR MANAGEMENT (SUPERADMIN ONLY) */}
-          {activeTab === 'users' && (
+          {isSuperAdmin && activeTab === 'users' && (
             <div className="space-y-5">
               <div>
                 <h2 className="font-display text-xl font-bold text-[#0B0F19]">
@@ -2915,8 +2895,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
           )}
-            </>
-          )}
+          </>
         </main>
       </div>
     </div>
