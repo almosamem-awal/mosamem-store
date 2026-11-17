@@ -425,11 +425,17 @@ import {
   normalizeHexColor,
   resolveHeroSlides,
   resolveStoreVisibility,
+  SITE_HERO_IMAGES,
   THEME_PRESETS,
 } from './theme';
 
 test('theme utilities normalize hex colors, compute accessible contrast, and map presets', () => {
-  assert.equal(THEME_PRESETS.length, 4);
+  assert.equal(THEME_PRESETS.length, 7);
+  assert.ok(SITE_HERO_IMAGES.length >= 7);
+  for (const preset of THEME_PRESETS) {
+    assert.ok(preset.heroImageUrl.startsWith('/assets/images/'));
+  }
+
   assert.equal(normalizeHexColor('059669'), '#059669');
   assert.equal(normalizeHexColor('#abc'), '#AABBCC');
   assert.equal(normalizeHexColor('invalid', '#FF6B00'), '#FF6B00');
@@ -440,6 +446,9 @@ test('theme utilities normalize hex colors, compute accessible contrast, and map
 
   assert.equal(detectMatchingPreset('#059669', '#FF6B00'), 'official_green');
   assert.equal(detectMatchingPreset('#2563EB', '#00FF87'), 'tech_blue');
+  assert.equal(detectMatchingPreset('#9D174D', '#E8C38E'), 'velvet_rose');
+  assert.equal(detectMatchingPreset('#78472A', '#DEB892'), 'cashmere_nude');
+  assert.equal(detectMatchingPreset('#7F1D3A', '#F2B5C4'), 'classic_rouge');
   assert.equal(detectMatchingPreset('#123456', '#654321'), 'custom');
 
   const vars = buildThemeCssVariables({

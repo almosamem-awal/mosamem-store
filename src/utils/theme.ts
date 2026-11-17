@@ -5,6 +5,84 @@ import type {
   ThemePresetId,
 } from '../types/store';
 
+export interface SiteHeroImageOption {
+  id: string;
+  url: string;
+  titleAr: string;
+  themeHintAr: string;
+  presetId?: Exclude<ThemePresetId, 'custom'>;
+}
+
+export const SITE_HERO_IMAGES: SiteHeroImageOption[] = [
+  {
+    id: 'img-emerald',
+    url: '/assets/images/hero_emerald_green_1794905575808.jpg',
+    titleAr: 'هوية المصمم الأول الخضراء',
+    themeHintAr: 'متناسق مع: الأخضر المعتمد',
+    presetId: 'official_green',
+  },
+  {
+    id: 'img-orange',
+    url: '/assets/images/hero_jumia_orange_1794905576444.jpg',
+    titleAr: 'العروض الجريئة البرتقالية',
+    themeHintAr: 'متناسق مع: جوميا كلاسيك',
+    presetId: 'jumia_classic',
+  },
+  {
+    id: 'img-blue',
+    url: '/assets/images/hero_tech_blue_1794905577048.jpg',
+    titleAr: 'التقنية والأزرق المستقبلي',
+    themeHintAr: 'متناسق مع: أزرق تكنولوجي',
+    presetId: 'tech_blue',
+  },
+  {
+    id: 'img-royal',
+    url: '/assets/images/hero_royal_gold_1794905576881.jpg',
+    titleAr: 'الفخامة الملكية والذهب',
+    themeHintAr: 'متناسق مع: فخامة ملكية',
+    presetId: 'royal_luxury',
+  },
+  {
+    id: 'img-velvet-rose',
+    url: '/assets/images/hero_velvet_rose_1794905579356.jpg',
+    titleAr: 'عطور ومستحضرات التجميل المخملية',
+    themeHintAr: 'متناسق مع: وردي مخملي وشمبانيا',
+    presetId: 'velvet_rose',
+  },
+  {
+    id: 'img-cashmere-nude',
+    url: '/assets/images/hero_cashmere_nude_1794905579291.jpg',
+    titleAr: 'العناية بالبشرة والسيروم الكلاسيكي',
+    themeHintAr: 'متناسق مع: كشمير برونزي ونود',
+    presetId: 'cashmere_nude',
+  },
+  {
+    id: 'img-classic-rouge',
+    url: '/assets/images/hero_classic_rouge_1794905580290.jpg',
+    titleAr: 'المكياج الكلاسيكي والروج العنابي',
+    themeHintAr: 'متناسق مع: روج كلاسيكي وبلَش وردي',
+    presetId: 'classic_rouge',
+  },
+  {
+    id: 'img-bright-lifestyle',
+    url: '/assets/images/hero_bright_lifestyle_1794729020434.jpg',
+    titleAr: 'واجهة اللايف ستايل المشرقة',
+    themeHintAr: 'صورة متجر مرفوعة على الموقع',
+  },
+  {
+    id: 'img-promo-tech',
+    url: '/assets/images/promo_tech_essentials_1794729734876.jpg',
+    titleAr: 'إكسسوارات الهواتف و MagSafe',
+    themeHintAr: 'صورة متجر مرفوعة على الموقع',
+  },
+  {
+    id: 'img-promo-gifts',
+    url: '/assets/images/promo_stem_gifts_1794729737354.jpg',
+    titleAr: 'بوكسات الهدايا والألعاب الذكية',
+    themeHintAr: 'صورة متجر مرفوعة على الموقع',
+  },
+];
+
 export interface ThemePresetDefinition {
   id: Exclude<ThemePresetId, 'custom'>;
   labelAr: string;
@@ -12,6 +90,8 @@ export interface ThemePresetDefinition {
   primaryColor: string;
   secondaryColor: string;
   descriptionAr: string;
+  heroImageUrl: string;
+  categoryTagAr?: string;
 }
 
 export const THEME_PRESETS: ThemePresetDefinition[] = [
@@ -22,6 +102,7 @@ export const THEME_PRESETS: ThemePresetDefinition[] = [
     primaryColor: '#059669',
     secondaryColor: '#FF6B00',
     descriptionAr: 'الهوية الرسمية لمتجر المصمم الأول: أخضر زمردي + برتقالي العروض',
+    heroImageUrl: '/assets/images/hero_emerald_green_1794905575808.jpg',
   },
   {
     id: 'jumia_classic',
@@ -30,6 +111,7 @@ export const THEME_PRESETS: ThemePresetDefinition[] = [
     primaryColor: '#F68B1E',
     secondaryColor: '#0F172A',
     descriptionAr: 'مظهر الأسواق الكبرى الكلاسيكي بالبرتقالي الصريح والأوبسيديان',
+    heroImageUrl: '/assets/images/hero_jumia_orange_1794905576444.jpg',
   },
   {
     id: 'tech_blue',
@@ -38,6 +120,7 @@ export const THEME_PRESETS: ThemePresetDefinition[] = [
     primaryColor: '#2563EB',
     secondaryColor: '#00FF87',
     descriptionAr: 'طابع تقني عصري للأجهزة الذكية وإكسسوارات الجيل الجديد',
+    heroImageUrl: '/assets/images/hero_tech_blue_1794905577048.jpg',
   },
   {
     id: 'royal_luxury',
@@ -46,6 +129,37 @@ export const THEME_PRESETS: ThemePresetDefinition[] = [
     primaryColor: '#0B0F19',
     secondaryColor: '#D4AF37',
     descriptionAr: 'أناقة تنفيذية فاخرة باللون الكربوني الداكن والذهب الملكي',
+    heroImageUrl: '/assets/images/hero_royal_gold_1794905576881.jpg',
+  },
+  {
+    id: 'velvet_rose',
+    labelAr: 'وردي مخملي وشمبانيا',
+    emoji: '💄',
+    primaryColor: '#9D174D',
+    secondaryColor: '#E8C38E',
+    descriptionAr: 'ثيم عصري مستوحى من أرقى دور التجميل والعطور الكلاسيكية بالوردي المخملي والذهبي الشمبانيا',
+    heroImageUrl: '/assets/images/hero_velvet_rose_1794905579356.jpg',
+    categoryTagAr: 'تجميل ومستحضرات كلاسيكية',
+  },
+  {
+    id: 'cashmere_nude',
+    labelAr: 'كشمير برونزي ونود',
+    emoji: '🧴',
+    primaryColor: '#78472A',
+    secondaryColor: '#DEB892',
+    descriptionAr: 'ألوان هادئة دافئة بدرجات البرونز الكشميري والنود الكلاسيكي لمستحضرات البشرة والعناية',
+    heroImageUrl: '/assets/images/hero_cashmere_nude_1794905579291.jpg',
+    categoryTagAr: 'تجميل ومستحضرات كلاسيكية',
+  },
+  {
+    id: 'classic_rouge',
+    labelAr: 'روج كلاسيكي وبلَش وردي',
+    emoji: '💋',
+    primaryColor: '#7F1D3A',
+    secondaryColor: '#F2B5C4',
+    descriptionAr: 'درجات الأحمر العنابي الكلاسيكي مع الوردي الناعم لإبراز فخامة مستحضرات التجميل والمكياج',
+    heroImageUrl: '/assets/images/hero_classic_rouge_1794905580290.jpg',
+    categoryTagAr: 'تجميل ومستحضرات كلاسيكية',
   },
 ];
 
@@ -53,7 +167,7 @@ export const DEFAULT_HERO_SLIDES: HeroSlide[] = [
   {
     id: 'hero-slide-wheel',
     kind: 'wheel',
-    imageUrl: '',
+    imageUrl: '/assets/images/hero_emerald_green_1794905575808.jpg',
     badgeAr: 'الكل كسبان 🎡',
     titleAr: 'عروض المصمّم الأول الكبرى — أدر العجلة واكسب كود خصمك الفوري!',
     subtitleAr:
@@ -129,6 +243,7 @@ export const DEFAULT_STORE_SETTINGS: StoreThemeSettings = {
   logoUrl: '',
   themePreset: 'official_green',
   wheelTargetCouponId: '',
+  heroImageUrl: '/assets/images/hero_emerald_green_1794905575808.jpg',
   heroSlides: DEFAULT_HERO_SLIDES,
   visibility: DEFAULT_VISIBILITY_SETTINGS,
 };

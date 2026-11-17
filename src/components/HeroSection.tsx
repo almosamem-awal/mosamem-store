@@ -75,7 +75,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             className="relative min-h-[320px] sm:min-h-[370px] text-white px-6 sm:px-12 py-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center"
             style={{
               background:
-                'linear-gradient(115deg, #0B0F19 0%, #064E3B 45%, var(--color-primary, #059669) 100%)',
+                'linear-gradient(115deg, #0B0F19 0%, var(--color-primary, #059669) 100%)',
             }}
           >
             {current.imageUrl?.trim() && (
@@ -84,16 +84,23 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                   src={current.imageUrl}
                   alt={current.titleAr}
                   referrerPolicy="no-referrer"
-                  className="absolute inset-0 w-full h-full object-cover opacity-35"
+                  className="absolute inset-0 w-full h-full object-cover opacity-55"
                 />
-                <div className="absolute inset-0 bg-gradient-to-l from-[#0B0F19]/90 via-[#064E3B]/75 to-black/45" />
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    background:
+                      'linear-gradient(270deg, rgba(11,15,25,0.88) 0%, rgba(11,15,25,0.62) 48%, rgba(11,15,25,0.28) 100%)',
+                  }}
+                />
               </>
             )}
 
-            {/* Subtle cyber green radial light */}
+            {/* Subtle dynamic primary radial light */}
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute -top-24 -left-16 w-80 h-80 rounded-full bg-[#00FF87]/20 blur-[90px]"
+              className="pointer-events-none absolute -top-24 -left-16 w-80 h-80 rounded-full opacity-25 blur-[90px]"
+              style={{ backgroundColor: 'var(--color-secondary, #FF6B00)' }}
             />
 
             {/* Right: Copy & Primary Action */}
@@ -170,7 +177,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                 className="absolute inset-0"
                 style={{
                   background:
-                    'linear-gradient(115deg, #0B0F19 0%, #064E3B 55%, var(--color-primary, #059669) 100%)',
+                    'linear-gradient(115deg, #0B0F19 0%, var(--color-primary, #059669) 100%)',
                 }}
               />
             )}

@@ -72,6 +72,7 @@ import {
   normalizeHexColor,
   resolveHeroSlides,
   resolveStoreVisibility,
+  SITE_HERO_IMAGES,
   THEME_PRESETS,
 } from '../utils/theme';
 import { createStudioProductImage } from '../lib/productArt';
@@ -231,6 +232,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [draftSeo, setDraftSeo] = useState<MarketingSeoSettings>(seoSettings);
   const [draftPolicy, setDraftPolicy] = useState<ReturnPolicySettings>(returnPolicy);
   const [draftTheme, setDraftTheme] = useState<StoreThemeSettings>(storeSettings);
+  const [selectedPresetHeroImage, setSelectedPresetHeroImage] = useState<string>(
+    () =>
+      storeSettings.heroImageUrl ||
+      resolveHeroSlides(storeSettings.heroSlides)[0]?.imageUrl ||
+      DEFAULT_STORE_SETTINGS.heroImageUrl ||
+      '/assets/images/hero_emerald_green_1794905575808.jpg'
+  );
+  const [heroApplyTarget, setHeroApplyTarget] = useState<
+    'main_and_first' | 'first_image_slide' | 'all_slides'
+  >('main_and_first');
+  const [themePreviewOpen, setThemePreviewOpen] = useState(false);
   const [draftHeroSlides, setDraftHeroSlides] = useState<HeroSlide[]>(() =>
     resolveHeroSlides(storeSettings.heroSlides)
   );
@@ -262,6 +274,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setDraftTheme(storeSettings);
     setDraftHeroSlides(resolveHeroSlides(storeSettings.heroSlides));
     setDraftVisibility(resolveStoreVisibility(storeSettings.visibility));
+    setSelectedPresetHeroImage(
+      storeSettings.heroImageUrl ||
+        resolveHeroSlides(storeSettings.heroSlides)[0]?.imageUrl ||
+        DEFAULT_STORE_SETTINGS.heroImageUrl ||
+        '/assets/images/hero_emerald_green_1794905575808.jpg'
+    );
   }, [storeSettings]);
 
   useEffect(() => {
@@ -634,6 +652,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     showSaved(notice || 'تم تحديث إعدادات ظهور أقسام الواجهة في المتجر فوراً.');
   };
 
+  const applyThemeAndHeroImage = (opts?: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    themePreset?: StoreThemeSettings['themePreset'];
+    heroImageUrl?: string;
+  }) => {
+    const nextPrimary = normalizeHexColor(
+      opts?.primaryColor ?? draftTheme.primaryColor,
+      DEFAULT_STORE_SETTINGS.primaryColor
+    );
+    const nextSecondary = normalizeHexColor(
+      opts?.secondaryColor ?? draftTheme.secondaryColor,
+      DEFAULT_STORE_SETTINGS.secondaryColor
+    );
+    const nextHeroUrl = (opts?.heroImageUrl ?? selectedPresetHeroImage).trim();
+    const currentSlides = resolveHeroSlides(draftHeroSlides);
+    const updatedSlides = nextHeroUrl
+      ? currentSlides.map((slide, idx) => {
+          if (heroApplyTarget === 'all_slides') {
+            return { ...slide, imageUrl: nextHeroUrl, active: true };
+          }
+          if (heroApplyTarget === 'first_image_slide') {
+            const firstImageIdx = currentSlides.findIndex((s) => s.kind === 'image');
+            const targetIdx = firstImageIdx >= 0 ? firstImageIdx : 0;
+            return idx === targetIdx ? { ...slide, imageUrl: nextHeroUrl, active: true } : slide;
+          }
+          return idx === 0 ? { ...slide, imageUrl: nextHeroUrl, active: true } : slide;
+        })
+      : currentSlides;
+
+    const nextSettings: StoreThemeSettings = {
+      ...storeSettings,
+      ...draftTheme,
+      primaryColor: nextPrimary,
+      secondaryColor: nextSecondary,
+      logoUrl: draftTheme.logoUrl.trim(),
+      themePreset: opts?.themePreset ?? detectMatchingPreset(nextPrimary, nextSecondary),
+      heroImageUrl: nextHeroUrl || storeSettings.heroImageUrl,
+      heroSlides: updatedSlides,
+    };
+
+    setDraftTheme(nextSettings);
+    setDraftHeroSlides(updatedSlides);
+    if (nextHeroUrl) setSelectedPresetHeroImage(nextHeroUrl);
+    onSaveStoreSettings(nextSettings);
+    setThemePreviewOpen(false);
+    showSaved('تم تطبيق السمة وصورة الهيرو المختارة وتحديث واجهة المتجر فوراً!');
+  };
+
   const handleAddCoupon = (e: React.FormEvent) => {
     e.preventDefault();
     const code = newCpnCode.trim().toUpperCase();
@@ -817,27 +884,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => {
-                      const sanitized: StoreThemeSettings = {
-                        ...draftTheme,
-                        primaryColor: normalizeHexColor(
-                          draftTheme.primaryColor,
-                          DEFAULT_STORE_SETTINGS.primaryColor
-                        ),
-                        secondaryColor: normalizeHexColor(
-                          draftTheme.secondaryColor,
-                          DEFAULT_STORE_SETTINGS.secondaryColor
-                        ),
-                        logoUrl: draftTheme.logoUrl.trim(),
-                        themePreset: detectMatchingPreset(
-                          draftTheme.primaryColor,
-                          draftTheme.secondaryColor
-                        ),
-                      };
-                      setDraftTheme(sanitized);
-                      onSaveStoreSettings(sanitized);
-                      showSaved('تم حفظ التغييرات وتحديث هوية المتجر وألوانه لحظياً!');
-                    }}
+                    onClick={() => applyThemeAndHeroImage()}
                     className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg font-bold text-xs shadow-sm cursor-pointer"
                     style={{
                       backgroundColor: normalizeHexColor(
@@ -858,62 +905,422 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              {/* 1-Click Theme Presets */}
-              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-                <h2 className="font-display text-base font-bold text-[#1E293B]">
-                  1. قوالب الهوية الجاهزة (ضغطة زر واحدة)
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* 1-Click Theme Presets + Site-Hosted Hero Image Selector */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-display text-base font-bold text-[#1E293B]">
+                      1. قوالب الهوية الجاهزة (ضغطة زر واحدة)
+                    </h2>
+                    <p className="text-xs text-[#64748B] mt-0.5">
+                      اختر السمة المناسبة (تشمل 3 سمات عصرية لمستحضرات التجميل الكلاسيكية) ثم حدد صورة الهيرو المرفوعة على الموقع للمعاينة أو التطبيق الفوري
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      data-testid="theme-preview-btn"
+                      onClick={() => setThemePreviewOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0B0F19] cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-[#059669]" />
+                      <span>معاينة</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="theme-apply-btn"
+                      onClick={() => applyThemeAndHeroImage()}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold shadow-sm cursor-pointer"
+                      style={{
+                        backgroundColor: normalizeHexColor(
+                          draftTheme.primaryColor,
+                          DEFAULT_STORE_SETTINGS.primaryColor
+                        ),
+                        color: getContrastTextColor(
+                          normalizeHexColor(
+                            draftTheme.primaryColor,
+                            DEFAULT_STORE_SETTINGS.primaryColor
+                          )
+                        ),
+                      }}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>تطبيق</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Preset Theme Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
                   {THEME_PRESETS.map((preset) => {
                     const isSelected = draftTheme.themePreset === preset.id;
                     return (
-                      <button
+                      <div
                         key={preset.id}
-                        type="button"
                         data-testid={`theme-preset-${preset.id}`}
                         onClick={() => {
-                          const next: StoreThemeSettings = {
+                          setDraftTheme({
                             ...draftTheme,
                             primaryColor: preset.primaryColor,
                             secondaryColor: preset.secondaryColor,
                             themePreset: preset.id,
-                          };
-                          setDraftTheme(next);
+                            heroImageUrl: preset.heroImageUrl,
+                          });
+                          setSelectedPresetHeroImage(preset.heroImageUrl);
                         }}
-                        className={`p-3.5 rounded-xl border-2 text-right space-y-2 transition-all cursor-pointer ${
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setDraftTheme({
+                              ...draftTheme,
+                              primaryColor: preset.primaryColor,
+                              secondaryColor: preset.secondaryColor,
+                              themePreset: preset.id,
+                              heroImageUrl: preset.heroImageUrl,
+                            });
+                            setSelectedPresetHeroImage(preset.heroImageUrl);
+                          }
+                        }}
+                        className={`rounded-xl border-2 overflow-hidden text-right flex flex-col justify-between transition-all cursor-pointer ${
                           isSelected
                             ? 'border-[#059669] bg-emerald-50/40 shadow-sm'
                             : 'border-slate-200 bg-[#F8F9FA] hover:border-slate-400'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-[#1E293B]">
-                            {preset.emoji} {preset.labelAr}
-                          </span>
+                        <div>
+                          {/* Matching Hero Banner Thumbnail */}
+                          <div className="relative aspect-[16/9] w-full bg-slate-900 overflow-hidden">
+                            <img
+                              src={preset.heroImageUrl}
+                              alt={preset.labelAr}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                            {preset.categoryTagAr && (
+                              <span
+                                className="absolute top-2 right-2 text-[10px] font-extrabold px-2 py-0.5 rounded shadow-xs"
+                                style={{
+                                  backgroundColor: preset.secondaryColor,
+                                  color: getContrastTextColor(preset.secondaryColor),
+                                }}
+                              >
+                                {preset.categoryTagAr}
+                              </span>
+                            )}
+                            {isSelected && (
+                              <span className="absolute top-2 left-2 w-6 h-6 rounded-full bg-[#059669] text-white flex items-center justify-center shadow">
+                                <Check className="w-3.5 h-3.5" />
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="p-3 space-y-2">
+                            <div className="text-xs font-extrabold text-[#1E293B]">
+                              {preset.emoji} {preset.labelAr}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-5 h-5 rounded-md border border-slate-200 shadow-xs"
+                                style={{ backgroundColor: preset.primaryColor }}
+                                title={`Primary ${preset.primaryColor}`}
+                              />
+                              <span
+                                className="w-5 h-5 rounded-md border border-slate-200 shadow-xs"
+                                style={{ backgroundColor: preset.secondaryColor }}
+                                title={`Secondary ${preset.secondaryColor}`}
+                              />
+                              <span className="text-[11px] font-mono text-[#64748B]">
+                                {preset.primaryColor}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#64748B] leading-snug">
+                              {preset.descriptionAr}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-6 h-6 rounded-md border border-slate-200 shadow-xs"
-                            style={{ backgroundColor: preset.primaryColor }}
-                            title={`Primary ${preset.primaryColor}`}
-                          />
-                          <span
-                            className="w-6 h-6 rounded-md border border-slate-200 shadow-xs"
-                            style={{ backgroundColor: preset.secondaryColor }}
-                            title={`Secondary ${preset.secondaryColor}`}
-                          />
-                          <span className="text-[11px] font-mono text-[#64748B]">
-                            {preset.primaryColor}
-                          </span>
+
+                        <div
+                          className="px-3 pb-3 pt-1 flex items-center gap-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDraftTheme({
+                                ...draftTheme,
+                                primaryColor: preset.primaryColor,
+                                secondaryColor: preset.secondaryColor,
+                                themePreset: preset.id,
+                                heroImageUrl: preset.heroImageUrl,
+                              });
+                              setSelectedPresetHeroImage(preset.heroImageUrl);
+                              setThemePreviewOpen(true);
+                            }}
+                            className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-[11px] font-bold text-[#0B0F19] cursor-pointer"
+                          >
+                            <Eye className="w-3 h-3" />
+                            <span>معاينة</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              applyThemeAndHeroImage({
+                                primaryColor: preset.primaryColor,
+                                secondaryColor: preset.secondaryColor,
+                                themePreset: preset.id,
+                                heroImageUrl: preset.heroImageUrl,
+                              })
+                            }
+                            className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-lg text-[11px] font-bold shadow-xs cursor-pointer"
+                            style={{
+                              backgroundColor: preset.primaryColor,
+                              color: getContrastTextColor(preset.primaryColor),
+                            }}
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>تطبيق</span>
+                          </button>
                         </div>
-                        <p className="text-[11px] text-[#64748B] leading-snug">
-                          {preset.descriptionAr}
-                        </p>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
+
+                {/* Site-Hosted Hero Image Picker */}
+                <div className="pt-4 border-t border-slate-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-display text-sm font-bold text-[#1E293B]">
+                        اختيار صورة الهيرو (صور مرفوعة على الموقع ومتناسقة مع السمات)
+                      </h3>
+                      <p className="text-[11px] text-[#64748B]">
+                        اختر إحدى الصور المرفوعة على الموقع أو غيّر وجهة التطبيق في الهيرو ثم اضغط معاينة أو تطبيق
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <label htmlFor="hero-apply-target" className="text-[11px] font-bold text-slate-600">
+                        تطبيق الصورة على:
+                      </label>
+                      <select
+                        id="hero-apply-target"
+                        value={heroApplyTarget}
+                        onChange={(e) =>
+                          setHeroApplyTarget(e.target.value as typeof heroApplyTarget)
+                        }
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-[#0B0F19]"
+                      >
+                        <option value="main_and_first">خلفية الهيرو الرئيسية (الشريحة الأولى)</option>
+                        <option value="first_image_slide">شريحة البانر المصور (الشريحة الثانية)</option>
+                        <option value="all_slides">جميع شرائح الهيرو</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                    {SITE_HERO_IMAGES.map((imgOpt) => {
+                      const isPicked = selectedPresetHeroImage === imgOpt.url;
+                      return (
+                        <button
+                          key={imgOpt.id}
+                          type="button"
+                          data-testid={`site-hero-img-${imgOpt.id}`}
+                          onClick={() => {
+                            setSelectedPresetHeroImage(imgOpt.url);
+                            setDraftTheme({
+                              ...draftTheme,
+                              heroImageUrl: imgOpt.url,
+                            });
+                          }}
+                          className={`group rounded-xl border-2 overflow-hidden text-right transition-all cursor-pointer ${
+                            isPicked
+                              ? 'border-[#059669] bg-emerald-50/40 shadow-sm'
+                              : 'border-slate-200 bg-white hover:border-slate-400'
+                          }`}
+                        >
+                          <div className="relative aspect-[16/9] w-full bg-slate-900 overflow-hidden">
+                            <img
+                              src={imgOpt.url}
+                              alt={imgOpt.titleAr}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            />
+                            {isPicked && (
+                              <span className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-[#059669] text-white flex items-center justify-center shadow">
+                                <Check className="w-3 h-3" />
+                              </span>
+                            )}
+                          </div>
+                          <div className="p-2 space-y-0.5">
+                            <div className="text-[11px] font-bold text-[#1E293B] line-clamp-1">
+                              {imgOpt.titleAr}
+                            </div>
+                            <div className="text-[10px] text-[#64748B] line-clamp-1">
+                              {imgOpt.themeHintAr}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
+
+              {/* Theme + Hero Image Interactive Preview Modal */}
+              {themePreviewOpen && (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="معاينة السمة وصورة الهيرو المختارة"
+                  className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm p-4 flex items-center justify-center overflow-y-auto"
+                >
+                  <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-4xl overflow-hidden shadow-2xl">
+                    <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="font-display text-base font-bold text-[#0B0F19]">
+                          معاينة حية للسمة المختارة وصورة الهيرو
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          معاينة الشكل النهائي قبل التطبيق على المتجر العام
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setThemePreviewOpen(false)}
+                        aria-label="إغلاق المعاينة"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="p-5 bg-[#F8F9FA] space-y-4">
+                      {/* Simulated Top Store Bar */}
+                      <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between gap-3 shadow-xs">
+                        <BrandLogo variant="lockup-light" logoUrl={draftTheme.logoUrl} />
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-bold"
+                            style={{
+                              backgroundColor: normalizeHexColor(draftTheme.primaryColor),
+                              color: getContrastTextColor(draftTheme.primaryColor),
+                            }}
+                          >
+                            بحث المتجر
+                          </span>
+                          <span
+                            className="px-3 py-1.5 rounded-lg text-xs font-extrabold"
+                            style={{
+                              backgroundColor: normalizeHexColor(draftTheme.secondaryColor),
+                              color: getContrastTextColor(draftTheme.secondaryColor),
+                            }}
+                          >
+                            السلة (3)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Simulated Hero Banner with Selected Site Image */}
+                      <div className="relative rounded-xl overflow-hidden min-h-[260px] flex items-center text-white border border-slate-200 shadow-md bg-[#0B0F19]">
+                        <img
+                          src={selectedPresetHeroImage}
+                          alt="معاينة صورة الهيرو"
+                          referrerPolicy="no-referrer"
+                          className="absolute inset-0 w-full h-full object-cover"
+                        />
+                        <div
+                          className="absolute inset-0"
+                          style={{
+                            background:
+                              'linear-gradient(270deg, rgba(11,15,25,0.88) 0%, rgba(11,15,25,0.58) 52%, rgba(11,15,25,0.2) 100%)',
+                          }}
+                        />
+                        <div className="relative z-10 p-6 sm:p-8 max-w-xl space-y-3">
+                          <span
+                            className="inline-block text-xs font-extrabold px-3 py-1 rounded-md"
+                            style={{
+                              backgroundColor: normalizeHexColor(draftTheme.secondaryColor),
+                              color: getContrastTextColor(draftTheme.secondaryColor),
+                            }}
+                          >
+                            تشكيلة المصمم الأول · عروض حصرية
+                          </span>
+                          <h4 className="font-display text-xl sm:text-3xl font-extrabold leading-tight">
+                            أناقة التصميم وجودة المنتجات في واجهة متجرك الجديدة
+                          </h4>
+                          <p className="text-xs sm:text-sm text-slate-200">
+                            تنعكس ألوان السمة وصورة الهيرو المرفوعة على الموقع مباشرة بعد الضغط على «تطبيق».
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                            <span
+                              className="px-5 py-2.5 rounded-lg text-xs font-extrabold shadow"
+                              style={{
+                                backgroundColor: normalizeHexColor(draftTheme.primaryColor),
+                                color: getContrastTextColor(draftTheme.primaryColor),
+                              }}
+                            >
+                              تسوق التشكيلة الآن
+                            </span>
+                            <span
+                              className="px-4 py-2.5 rounded-lg text-xs font-extrabold"
+                              style={{
+                                backgroundColor: normalizeHexColor(draftTheme.secondaryColor),
+                                color: getContrastTextColor(draftTheme.secondaryColor),
+                              }}
+                            >
+                              عروض الفلاش ⚡
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="px-5 py-4 border-t border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-xs text-slate-600">
+                        <span
+                          className="w-4 h-4 rounded border border-slate-300"
+                          style={{ backgroundColor: normalizeHexColor(draftTheme.primaryColor) }}
+                        />
+                        <span className="font-mono">{normalizeHexColor(draftTheme.primaryColor)}</span>
+                        <span>/</span>
+                        <span
+                          className="w-4 h-4 rounded border border-slate-300"
+                          style={{ backgroundColor: normalizeHexColor(draftTheme.secondaryColor) }}
+                        />
+                        <span className="font-mono">{normalizeHexColor(draftTheme.secondaryColor)}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setThemePreviewOpen(false)}
+                          className="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0B0F19] cursor-pointer"
+                        >
+                          إغلاق المعاينة
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyThemeAndHeroImage()}
+                          className="inline-flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-extrabold shadow-sm cursor-pointer"
+                          style={{
+                            backgroundColor: normalizeHexColor(draftTheme.primaryColor),
+                            color: getContrastTextColor(draftTheme.primaryColor),
+                          }}
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>تطبيق السمة والصورة الآن</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Interactive HEX Color Pickers & Logo Manager */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">

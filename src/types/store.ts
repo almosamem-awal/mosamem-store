@@ -201,6 +201,9 @@ export type ThemePresetId =
   | 'jumia_classic'
   | 'tech_blue'
   | 'royal_luxury'
+  | 'velvet_rose'
+  | 'cashmere_nude'
+  | 'classic_rouge'
   | 'custom';
 
 export interface HeroSlide {
@@ -242,6 +245,7 @@ export interface StoreThemeSettings {
   logoUrl: string;
   themePreset: ThemePresetId;
   wheelTargetCouponId?: string;
+  heroImageUrl?: string;
   heroSlides?: HeroSlide[];
   visibility?: StorefrontVisibilitySettings;
 }
