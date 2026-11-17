@@ -16,6 +16,7 @@ import {
   Heart,
   LogOut,
   ShieldCheck,
+  Tag,
 } from 'lucide-react';
 import type { AuthUser, Category, Product } from '../types/store';
 import { formatSAR, getEffectiveProductPrice } from '../utils/commerce';
@@ -49,6 +50,7 @@ interface NavbarProps {
   onOpenWheel: () => void;
   onOpenPolicy: () => void;
   onJumpToFlashSales: () => void;
+  showFlashSales?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -75,11 +77,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenWheel,
   onOpenPolicy,
   onJumpToFlashSales,
+  showFlashSales = true,
 }) => {
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [headerCatChoice, setHeaderCatChoice] = useState<string>('all');
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  const visibleCategories = useMemo(
+    () => categories.filter((c) => !c.hidden),
+    [categories]
+  );
+
+  const hiddenCategoryIds = useMemo(
+    () => new Set(categories.filter((c) => c.hidden).map((c) => c.id)),
+    [categories]
+  );
+
+  useEffect(() => {
+    if (headerCatChoice !== 'all' && hiddenCategoryIds.has(headerCatChoice)) {
+      setHeaderCatChoice('all');
+    }
+  }, [headerCatChoice, hiddenCategoryIds]);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -96,6 +115,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (q.length < 2) return [];
     return products
       .filter((p) => {
+        if (hiddenCategoryIds.has(p.categoryId)) return false;
         if (headerCatChoice !== 'all' && p.categoryId !== headerCatChoice) return false;
         return (
           p.nameAr.toLowerCase().includes(q) ||
@@ -105,7 +125,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         );
       })
       .slice(0, 5);
-  }, [products, searchQuery, headerCatChoice]);
+  }, [products, searchQuery, headerCatChoice, hiddenCategoryIds]);
 
   const handleGlobalSearchInput = (value: string) => {
     onSearchChange(value);
@@ -190,7 +210,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="bg-slate-50 border-l border-slate-200 px-3 py-2.5 text-xs font-bold text-[#1E293B] rounded-r-lg focus:outline-none max-w-[155px] truncate cursor-pointer"
               >
                 <option value="all">كل الأقسام</option>
-                {categories.map((cat) => (
+                {visibleCategories.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.nameAr}
                   </option>
@@ -478,84 +498,61 @@ export const Navbar: React.FC<NavbarProps> = ({
           className="bg-white border-b border-slate-200"
         >
           <div className="max-w-[1280px] mx-auto px-3 sm:px-6 flex items-center justify-start lg:justify-between gap-1 sm:gap-2 overflow-x-auto py-2">
-            <button
-              type="button"
-              onClick={() => {
-                onSelectCategory('cat-accessories');
-                onSelectSpecialFilter('all');
-                onSearchSubmit();
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-              style={
-                selectedCategoryId === 'cat-accessories'
-                  ? { backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }
-                  : { color: '#1E293B' }
-              }
-            >
-              <Smartphone className="w-3.5 h-3.5" style={{ color: 'var(--color-primary)' }} />
-              <span>إكسسوارات الهواتف</span>
-            </button>
-
-            <span className="text-slate-300 text-xs hidden sm:inline" aria-hidden="true">|</span>
-
-            <button
-              type="button"
-              onClick={() => {
-                onSelectCategory('cat-stem');
-                onSelectSpecialFilter('all');
-                onSearchSubmit();
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-              style={
-                selectedCategoryId === 'cat-stem'
-                  ? { backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }
-                  : { color: '#1E293B' }
-              }
-            >
-              <Bot className="w-3.5 h-3.5" style={{ color: 'var(--color-primary)' }} />
-              <span>ألعاب الأطفال الذكية</span>
-            </button>
-
-            <span className="text-slate-300 text-xs hidden sm:inline" aria-hidden="true">|</span>
-
-            <button
-              type="button"
-              onClick={() => {
-                onSelectCategory('cat-luxury');
-                onSelectSpecialFilter('all');
-                onSearchSubmit();
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-              style={
-                selectedCategoryId === 'cat-luxury'
-                  ? { backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }
-                  : { color: '#1E293B' }
-              }
-            >
-              <Gift className="w-3.5 h-3.5" style={{ color: 'var(--color-primary)' }} />
-              <span>الهدايا والتحف</span>
-            </button>
-
-            <span className="text-slate-300 text-xs hidden sm:inline" aria-hidden="true">|</span>
-
-            <button
-              type="button"
-              onClick={onJumpToFlashSales}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-extrabold whitespace-nowrap shrink-0 transition-colors cursor-pointer"
-              style={
-                specialFilter === 'flash'
-                  ? {
-                      backgroundColor: 'var(--color-secondary-soft)',
-                      color: 'var(--color-secondary)',
+            {visibleCategories.map((cat) => {
+              const Icon =
+                cat.id === 'cat-accessories'
+                  ? Smartphone
+                  : cat.id === 'cat-stem'
+                  ? Bot
+                  : cat.id === 'cat-luxury'
+                  ? Gift
+                  : Tag;
+              const isSelected = selectedCategoryId === cat.id && specialFilter === 'all';
+              return (
+                <React.Fragment key={cat.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectCategory(cat.id);
+                      onSelectSpecialFilter('all');
+                      onSearchSubmit();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                    style={
+                      isSelected
+                        ? { backgroundColor: 'var(--color-primary-soft)', color: 'var(--color-primary)' }
+                        : { color: '#1E293B' }
                     }
-                  : { color: 'var(--color-secondary)' }
-              }
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>عروض الفلاش</span>
-            </button>
+                  >
+                    <Icon className="w-3.5 h-3.5" style={{ color: 'var(--color-primary)' }} />
+                    <span>{cat.nameAr}</span>
+                  </button>
+                  <span className="text-slate-300 text-xs hidden sm:inline" aria-hidden="true">|</span>
+                </React.Fragment>
+              );
+            })}
 
-            <span className="text-slate-300 text-xs hidden sm:inline" aria-hidden="true">|</span>
+            {showFlashSales && (
+              <>
+                <button
+                  type="button"
+                  onClick={onJumpToFlashSales}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-extrabold whitespace-nowrap shrink-0 transition-colors cursor-pointer"
+                  style={
+                    specialFilter === 'flash'
+                      ? {
+                          backgroundColor: 'var(--color-secondary-soft)',
+                          color: 'var(--color-secondary)',
+                        }
+                      : { color: 'var(--color-secondary)' }
+                  }
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>عروض الفلاش</span>
+                </button>
+                <span className="text-slate-300 text-xs hidden sm:inline" aria-hidden="true">|</span>
+              </>
+            )}
 
             <button
               type="button"

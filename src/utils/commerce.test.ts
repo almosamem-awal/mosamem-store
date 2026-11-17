@@ -417,10 +417,14 @@ test('flash sale countdown and stock urgency bar compute deterministic values', 
 
 import {
   buildThemeCssVariables,
+  DEFAULT_HERO_SLIDES,
   DEFAULT_STORE_SETTINGS,
+  DEFAULT_VISIBILITY_SETTINGS,
   detectMatchingPreset,
   getContrastTextColor,
   normalizeHexColor,
+  resolveHeroSlides,
+  resolveStoreVisibility,
   THEME_PRESETS,
 } from './theme';
 
@@ -449,3 +453,24 @@ test('theme utilities normalize hex colors, compute accessible contrast, and map
   assert.equal(vars['--color-secondary'], '#00FF87');
   assert.equal(vars['--color-secondary-contrast'], '#0F172A');
 });
+
+test('hero slides and storefront visibility resolvers preserve defaults and partial overrides', () => {
+  assert.equal(resolveHeroSlides(undefined).length, DEFAULT_HERO_SLIDES.length);
+  assert.equal(resolveHeroSlides([]).length, 0);
+
+  const defaultVis = resolveStoreVisibility(undefined);
+  assert.deepEqual(defaultVis, DEFAULT_VISIBILITY_SETTINGS);
+
+  const partialVis = resolveStoreVisibility({
+    showFlashSales: false,
+    quickFeatureItems: {
+      ...DEFAULT_VISIBILITY_SETTINGS.quickFeatureItems,
+      wheel: false,
+    },
+  });
+  assert.equal(partialVis.showFlashSales, false);
+  assert.equal(partialVis.showCatalogSection, true);
+  assert.equal(partialVis.quickFeatureItems.wheel, false);
+  assert.equal(partialVis.quickFeatureItems.flash, true);
+});
+

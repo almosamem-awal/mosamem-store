@@ -9,7 +9,7 @@ import {
   Sparkles,
   Tag,
 } from 'lucide-react';
-import type { Category, Product } from '../types/store';
+import type { Category, Product, StoreThemeSettings } from '../types/store';
 import {
   computeStockUrgencyPercent,
   formatFlashCountdown,
@@ -17,6 +17,7 @@ import {
   getEffectiveProductPrice,
   getFlashSaleProducts,
 } from '../utils/commerce';
+import { resolveStoreVisibility } from '../utils/theme';
 import { getFallbackProductArt } from '../data/seedData';
 import { HeroSection } from '../components/HeroSection';
 import { ProductCard } from '../components/ProductCard';
@@ -28,6 +29,7 @@ interface StorefrontPageProps {
   categories: Category[];
   referralCode: string | null;
   logoUrl?: string;
+  storeSettings?: StoreThemeSettings;
   wishlistIds: string[];
   searchQuery: string;
   selectedCategoryId: string;
@@ -43,11 +45,21 @@ interface StorefrontPageProps {
   onOpenPolicy: () => void;
 }
 
+const QUICK_GRID_COLS: Record<number, string> = {
+  1: 'lg:grid-cols-1',
+  2: 'lg:grid-cols-2',
+  3: 'lg:grid-cols-3',
+  4: 'lg:grid-cols-4',
+  5: 'lg:grid-cols-5',
+  6: 'lg:grid-cols-6',
+};
+
 export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   products,
   categories,
   referralCode,
   logoUrl,
+  storeSettings,
   wishlistIds,
   searchQuery,
   selectedCategoryId,
@@ -84,19 +96,44 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     [flashSecondsRemaining]
   );
 
+  const visibility = useMemo(
+    () => resolveStoreVisibility(storeSettings?.visibility),
+    [storeSettings?.visibility]
+  );
+
+  const visibleCategories = useMemo(
+    () => categories.filter((c) => !c.hidden),
+    [categories]
+  );
+
+  const hiddenCategoryIds = useMemo(
+    () => new Set(categories.filter((c) => c.hidden).map((c) => c.id)),
+    [categories]
+  );
+
+  const visibleProducts = useMemo(
+    () => products.filter((p) => !hiddenCategoryIds.has(p.categoryId)),
+    [products, hiddenCategoryIds]
+  );
+
   const flashSaleProducts = useMemo(
-    () => getFlashSaleProducts(products, categories, 10),
-    [products, categories]
+    () => getFlashSaleProducts(visibleProducts, visibleCategories, 10),
+    [visibleProducts, visibleCategories]
   );
 
   const circularCategories = useMemo(() => {
     const pickImg = (id: string, fallbackIdx: number) =>
-      products.find((p) => p.id === id)?.images[0] || products[fallbackIdx]?.images[0] || '';
+      visibleProducts.find((p) => p.id === id)?.images[0] ||
+      visibleProducts[fallbackIdx]?.images[0] ||
+      products[fallbackIdx]?.images[0] ||
+      '';
+    const catName = (catId: string, fallback: string) =>
+      visibleCategories.find((c) => c.id === catId)?.nameAr || fallback;
 
-    return [
+    const baseBubbles = [
       {
         id: 'bubble-phone',
-        titleAr: 'إكسسوارات الهواتف',
+        titleAr: catName('cat-accessories', 'إكسسوارات الهواتف'),
         image: pickImg('prod-01', 0),
         sku: 'AMA-PA-001',
         categoryId: 'cat-accessories',
@@ -128,7 +165,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       },
       {
         id: 'bubble-robots',
-        titleAr: 'روبوتات ذكية',
+        titleAr: catName('cat-stem', 'روبوتات ذكية'),
         image: pickImg('prod-21', 20),
         sku: 'AMA-ST-021',
         categoryId: 'cat-stem',
@@ -152,22 +189,40 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
       },
       {
         id: 'bubble-gifts',
-        titleAr: 'بوكسات الهدايا',
+        titleAr: catName('cat-luxury', 'بوكسات الهدايا'),
         image: pickImg('prod-47', 46),
         sku: 'AMA-LX-047',
         categoryId: 'cat-luxury',
         special: 'all' as MarketplaceQuickFilter,
       },
     ];
-  }, [products]);
+
+    const customBubbles = visibleCategories
+      .filter((c) => !['cat-accessories', 'cat-stem', 'cat-luxury'].includes(c.id))
+      .map((cat) => {
+        const matchProd = visibleProducts.find((p) => p.categoryId === cat.id);
+        return {
+          id: `bubble-${cat.id}`,
+          titleAr: cat.nameAr,
+          image: matchProd?.images[0] || products[0]?.images[0] || '',
+          sku: matchProd?.sku || 'AMA-PA-001',
+          categoryId: cat.id,
+          special: 'all' as MarketplaceQuickFilter,
+        };
+      });
+
+    return [...baseBubbles, ...customBubbles].filter(
+      (b) => !hiddenCategoryIds.has(b.categoryId)
+    );
+  }, [products, visibleProducts, visibleCategories, hiddenCategoryIds]);
 
   const filteredProducts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const list = products.filter((p) => {
+    const list = visibleProducts.filter((p) => {
       if (selectedCategoryId !== 'all' && p.categoryId !== selectedCategoryId) {
         return false;
       }
-      const pricing = getEffectiveProductPrice(p, categories);
+      const pricing = getEffectiveProductPrice(p, visibleCategories);
       if (pricing.effectivePrice > maxPrice) {
         return false;
       }
@@ -197,22 +252,22 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     if (sortBy === 'price_asc') {
       return [...list].sort(
         (a, b) =>
-          getEffectiveProductPrice(a, categories).effectivePrice -
-          getEffectiveProductPrice(b, categories).effectivePrice
+          getEffectiveProductPrice(a, visibleCategories).effectivePrice -
+          getEffectiveProductPrice(b, visibleCategories).effectivePrice
       );
     }
     if (sortBy === 'price_desc') {
       return [...list].sort(
         (a, b) =>
-          getEffectiveProductPrice(b, categories).effectivePrice -
-          getEffectiveProductPrice(a, categories).effectivePrice
+          getEffectiveProductPrice(b, visibleCategories).effectivePrice -
+          getEffectiveProductPrice(a, visibleCategories).effectivePrice
       );
     }
     if (sortBy === 'top_rated' || specialFilter === 'top_rated') {
       return [...list].sort((a, b) => b.rating - a.rating || b.reviewsCount - a.reviewsCount);
     }
     return [...list].sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)));
-  }, [products, categories, selectedCategoryId, specialFilter, maxPrice, searchQuery, sortBy]);
+  }, [visibleProducts, visibleCategories, selectedCategoryId, specialFilter, maxPrice, searchQuery, sortBy]);
 
   const jumpToCatalog = () => {
     document.getElementById('catalog-section')?.scrollIntoView({ behavior: 'smooth' });
@@ -247,6 +302,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
   const quickFeatureCards = [
     {
       id: 'qf-flash',
+      key: 'flash' as const,
       icon: '⚡',
       title: 'فلاش سيل',
       subtitle: 'لفترة محدودة',
@@ -254,6 +310,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     },
     {
       id: 'qf-coupon',
+      key: 'coupon' as const,
       icon: '🎫',
       title: 'كوبون حصري',
       subtitle: 'خصم إضافي',
@@ -264,6 +321,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     },
     {
       id: 'qf-wheel',
+      key: 'wheel' as const,
       icon: '🎡',
       title: 'العب واكسب',
       subtitle: 'عجلة الحظ',
@@ -271,6 +329,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     },
     {
       id: 'qf-shipping',
+      key: 'shipping' as const,
       icon: '🚚',
       title: 'شحن مجاني',
       subtitle: 'للطلبات المؤهلة',
@@ -278,6 +337,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     },
     {
       id: 'qf-magsafe',
+      key: 'magsafe' as const,
       icon: '📱',
       title: 'إكسسوارات MagSafe',
       subtitle: 'تثبيت مغناطيسي',
@@ -289,6 +349,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
     },
     {
       id: 'qf-gifts',
+      key: 'gifts' as const,
       icon: '🎁',
       title: 'بوكسات الهدايا',
       subtitle: 'تغليف فاخر بالرياض',
@@ -298,12 +359,13 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         jumpToCatalog();
       },
     },
-  ];
+  ].filter((card) => visibility.quickFeatureItems[card.key]);
 
   return (
     <div className="bg-[#F8F9FA] text-[#1E293B] space-y-5 pb-10">
       {/* 1. Hero Carousel with Official Green & Temu/Jumia Spin Wheel */}
       <HeroSection
+        slides={storeSettings?.heroSlides}
         onExploreCatalog={jumpToCatalog}
         onJumpToFlashSales={jumpToFlashSales}
         onSelectCategory={(catId) => {
@@ -312,7 +374,7 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           jumpToCatalog();
         }}
         onOpenWheel={onOpenWheel}
-        totalProductsCount={products.length}
+        totalProductsCount={visibleProducts.length}
       />
 
       {/* Active Coupon / Referral Feedback Strip */}
@@ -351,116 +413,125 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
         </div>
       )}
 
-      {/* 2. Quick Access 6 Feature Cards */}
-      <section aria-label="وصول سريع للعروض والأقسام" className="max-w-[1280px] mx-auto px-3 sm:px-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
-          {quickFeatureCards.map((card) => (
-            <button
-              key={card.id}
-              type="button"
-              onClick={card.onClick}
-              className="group bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200/80 shadow-xs hover:shadow-md hover:border-[var(--color-primary)] hover:-translate-y-0.5 transition-all text-right flex items-center gap-2.5 cursor-pointer"
-            >
-              <span
-                className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0 group-hover:scale-110 transition-transform"
-                style={{ backgroundColor: 'var(--color-primary-soft)' }}
-              >
-                {card.icon}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-bold text-[#1E293B] leading-snug">
-                  {card.title}
-                </div>
-                <div className="text-[11px] text-[#64748B] truncate">{card.subtitle}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* 3. Circular Categories (2 Rows of 4 on Desktop) with Coupon Badges */}
-      <section aria-label="الأقسام الدائرية وكوبونات الخصم" className="max-w-[1280px] mx-auto px-3 sm:px-6">
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-slate-200/80 shadow-xs space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-base sm:text-xl font-extrabold text-[#1E293B]">
-              تسوق حسب القسم مع كوبونات خصم فورية
-            </h2>
-            <span
-              className="inline-flex items-center gap-1.5 text-xs font-extrabold"
-              style={{ color: 'var(--color-primary)' }}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>خصم حتى 30% | كود: ALM30</span>
-            </span>
-          </div>
-
-          {/* 2 neat rows of 4 on sm/lg desktop */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-5">
-            {circularCategories.map((bubble) => (
+      {/* 2. Quick Access Feature Cards */}
+      {visibility.showQuickFeatureStrip && quickFeatureCards.length > 0 && (
+        <section aria-label="وصول سريع للعروض والأقسام" className="max-w-[1280px] mx-auto px-3 sm:px-6">
+          <div
+            className={`grid grid-cols-2 sm:grid-cols-3 ${
+              QUICK_GRID_COLS[quickFeatureCards.length] || 'lg:grid-cols-6'
+            } gap-2.5 sm:gap-3`}
+          >
+            {quickFeatureCards.map((card) => (
               <button
-                key={bubble.id}
+                key={card.id}
                 type="button"
-                onClick={() => {
-                  onSelectCategory(bubble.categoryId);
-                  onSelectSpecialFilter(bubble.special);
-                  void activateCouponBanner('ALM30', 'خصم حتى 30%');
-                  jumpToCatalog();
-                }}
-                className="group flex flex-col items-center text-center gap-2.5 p-2 rounded-xl hover:bg-[#F8F9FA] transition-colors cursor-pointer"
+                onClick={card.onClick}
+                className="group bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200/80 shadow-xs hover:shadow-md hover:border-[var(--color-primary)] hover:-translate-y-0.5 transition-all text-right flex items-center gap-2.5 cursor-pointer"
               >
-                <div
-                  className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border-[3px] shadow-sm bg-[#F8F9FA] transition-transform duration-300 group-hover:scale-105"
-                  style={{ borderColor: 'var(--color-primary)' }}
+                <span
+                  className="w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0 group-hover:scale-110 transition-transform"
+                  style={{ backgroundColor: 'var(--color-primary-soft)' }}
                 >
-                  <img
-                    src={bubble.image}
-                    alt={bubble.titleAr}
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (!target.dataset.fallbackApplied) {
-                        target.dataset.fallbackApplied = '1';
-                        target.src = getFallbackProductArt(bubble.sku);
-                      }
-                    }}
-                    className="w-full h-full object-cover"
-                  />
+                  {card.icon}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-[#1E293B] leading-snug">
+                    {card.title}
+                  </div>
+                  <div className="text-[11px] text-[#64748B] truncate">{card.subtitle}</div>
                 </div>
-                <span className="text-xs sm:text-sm font-bold text-[#1E293B] leading-tight line-clamp-1">
-                  {bubble.titleAr}
-                </span>
-                <span className="inline-flex items-center rounded-md overflow-hidden text-[10px] font-extrabold leading-none shadow-xs">
-                  <span
-                    className="px-2 py-1"
-                    style={{
-                      backgroundColor: 'var(--color-primary)',
-                      color: 'var(--color-primary-contrast)',
-                    }}
-                  >
-                    خصم حتى 30%
-                  </span>
-                  <span
-                    className="px-2 py-1 font-mono"
-                    style={{
-                      backgroundColor: 'var(--color-secondary)',
-                      color: 'var(--color-secondary-contrast)',
-                    }}
-                  >
-                    كود: ALM30
-                  </span>
-                </span>
               </button>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
+
+      {/* 3. Circular Categories (2 Rows of 4 on Desktop) with Coupon Badges */}
+      {visibility.showCircularCategories && circularCategories.length > 0 && (
+        <section aria-label="الأقسام الدائرية وكوبونات الخصم" className="max-w-[1280px] mx-auto px-3 sm:px-6">
+          <div className="bg-white rounded-xl p-4 sm:p-6 border border-slate-200/80 shadow-xs space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-display text-base sm:text-xl font-extrabold text-[#1E293B]">
+                تسوق حسب القسم مع كوبونات خصم فورية
+              </h2>
+              <span
+                className="inline-flex items-center gap-1.5 text-xs font-extrabold"
+                style={{ color: 'var(--color-primary)' }}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>خصم حتى 30% | كود: ALM30</span>
+              </span>
+            </div>
+
+            {/* 2 neat rows of 4 on sm/lg desktop */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-5">
+              {circularCategories.map((bubble) => (
+                <button
+                  key={bubble.id}
+                  type="button"
+                  onClick={() => {
+                    onSelectCategory(bubble.categoryId);
+                    onSelectSpecialFilter(bubble.special);
+                    void activateCouponBanner('ALM30', 'خصم حتى 30%');
+                    jumpToCatalog();
+                  }}
+                  className="group flex flex-col items-center text-center gap-2.5 p-2 rounded-xl hover:bg-[#F8F9FA] transition-colors cursor-pointer"
+                >
+                  <div
+                    className="w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border-[3px] shadow-sm bg-[#F8F9FA] transition-transform duration-300 group-hover:scale-105"
+                    style={{ borderColor: 'var(--color-primary)' }}
+                  >
+                    <img
+                      src={bubble.image}
+                      alt={bubble.titleAr}
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (!target.dataset.fallbackApplied) {
+                          target.dataset.fallbackApplied = '1';
+                          target.src = getFallbackProductArt(bubble.sku);
+                        }
+                      }}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <span className="text-xs sm:text-sm font-bold text-[#1E293B] leading-tight line-clamp-1">
+                    {bubble.titleAr}
+                  </span>
+                  <span className="inline-flex items-center rounded-md overflow-hidden text-[10px] font-extrabold leading-none shadow-xs">
+                    <span
+                      className="px-2 py-1"
+                      style={{
+                        backgroundColor: 'var(--color-primary)',
+                        color: 'var(--color-primary-contrast)',
+                      }}
+                    >
+                      خصم حتى 30%
+                    </span>
+                    <span
+                      className="px-2 py-1 font-mono"
+                      style={{
+                        backgroundColor: 'var(--color-secondary)',
+                        color: 'var(--color-secondary-contrast)',
+                      }}
+                    >
+                      كود: ALM30
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* 4. Flash Sales Section with Live Countdown Timer Styled with var(--color-secondary) */}
-      <section
-        id="flash-sales-section"
-        aria-label="عروض الفلاش اليومية"
-        className="max-w-[1280px] mx-auto px-3 sm:px-6"
-      >
+      {visibility.showFlashSales && flashSaleProducts.length > 0 && (
+        <section
+          id="flash-sales-section"
+          aria-label="عروض الفلاش اليومية"
+          className="max-w-[1280px] mx-auto px-3 sm:px-6"
+        >
         <div className="rounded-xl overflow-hidden shadow-xs border border-slate-200/80 bg-white">
           <div
             className="px-4 sm:px-5 py-3.5 flex flex-wrap items-center justify-between gap-3"
@@ -608,101 +679,115 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           </div>
         </div>
       </section>
+      )}
 
       {/* 5. Dual Promo Promotional Banners */}
-      <section aria-label="عروض ترويجية موسمية" className="max-w-[1280px] mx-auto px-3 sm:px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button
-            type="button"
-            onClick={() => {
-              onSelectCategory('cat-accessories');
-              onSelectSpecialFilter('all');
-              jumpToCatalog();
-            }}
-            className="group relative rounded-xl overflow-hidden shadow-xs border border-slate-200/80 aspect-[16/8] sm:aspect-[16/7] text-right cursor-pointer"
+      {(visibility.showNewArrivalsBanner || visibility.showGiftSeasonBanner) && (
+        <section aria-label="عروض ترويجية موسمية" className="max-w-[1280px] mx-auto px-3 sm:px-6">
+          <div
+            className={`grid grid-cols-1 ${
+              visibility.showNewArrivalsBanner && visibility.showGiftSeasonBanner
+                ? 'md:grid-cols-2'
+                : ''
+            } gap-4`}
           >
-            <img
-              src="/assets/images/promo_tech_essentials_1794729734876.jpg"
-              alt="تشكيلة MagSafe وشواحن GaN الفاخرة"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            />
-            <div className="absolute inset-0 bg-gradient-to-l from-black/80 via-black/45 to-transparent" />
-            <div className="absolute inset-0 p-5 sm:p-7 flex flex-col justify-center items-start gap-2 text-white max-w-md">
-              <span
-                className="text-[11px] font-extrabold px-2.5 py-1 rounded"
-                style={{
-                  backgroundColor: 'var(--color-primary)',
-                  color: 'var(--color-primary-contrast)',
+            {visibility.showNewArrivalsBanner && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectCategory('cat-accessories');
+                  onSelectSpecialFilter('all');
+                  jumpToCatalog();
                 }}
+                className="group relative rounded-xl overflow-hidden shadow-xs border border-slate-200/80 aspect-[16/8] sm:aspect-[16/7] text-right cursor-pointer"
               >
-                وصل حديثاً · إكسسوارات الجوال
-              </span>
-              <h3 className="font-display text-lg sm:text-2xl font-extrabold leading-snug">
-                تشكيلة MagSafe وشواحن GaN الفاخرة
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-200">
-                خصومات تصل إلى 30% وتوصيل فوري داخل الرياض
-              </p>
-              <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#00FF87] pt-1">
-                <span>تسوق التشكيلة</span>
-                <ArrowLeft className="w-3.5 h-3.5" />
-              </span>
-            </div>
-          </button>
+                <img
+                  src="/assets/images/promo_tech_essentials_1794729734876.jpg"
+                  alt="تشكيلة MagSafe وشواحن GaN الفاخرة"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                <div className="absolute inset-0 bg-gradient-to-l from-black/80 via-black/45 to-transparent" />
+                <div className="absolute inset-0 p-5 sm:p-7 flex flex-col justify-center items-start gap-2 text-white max-w-md">
+                  <span
+                    className="text-[11px] font-extrabold px-2.5 py-1 rounded"
+                    style={{
+                      backgroundColor: 'var(--color-primary)',
+                      color: 'var(--color-primary-contrast)',
+                    }}
+                  >
+                    وصل حديثاً · إكسسوارات الجوال
+                  </span>
+                  <h3 className="font-display text-lg sm:text-2xl font-extrabold leading-snug">
+                    تشكيلة MagSafe وشواحن GaN الفاخرة
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-200">
+                    خصومات تصل إلى 30% وتوصيل فوري داخل الرياض
+                  </p>
+                  <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#00FF87] pt-1">
+                    <span>تسوق التشكيلة</span>
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+              </button>
+            )}
 
-          <button
-            type="button"
-            onClick={() => {
-              onSelectCategory('cat-stem');
-              onSelectSpecialFilter('all');
-              jumpToCatalog();
-            }}
-            className="group relative rounded-xl overflow-hidden shadow-xs border border-slate-200/80 aspect-[16/8] sm:aspect-[16/7] text-right cursor-pointer"
-          >
-            <img
-              src="/assets/images/promo_stem_gifts_1794729737354.jpg"
-              alt="عالم الألعاب الذكية STEM والهدايا الفاخرة"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            />
-            <div className="absolute inset-0 bg-gradient-to-l from-black/80 via-black/45 to-transparent" />
-            <div className="absolute inset-0 p-5 sm:p-7 flex flex-col justify-center items-start gap-2 text-white max-w-md">
-              <span
-                className="text-[11px] font-extrabold px-2.5 py-1 rounded"
-                style={{
-                  backgroundColor: 'var(--color-secondary)',
-                  color: 'var(--color-secondary-contrast)',
+            {visibility.showGiftSeasonBanner && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectCategory('cat-stem');
+                  onSelectSpecialFilter('all');
+                  jumpToCatalog();
                 }}
+                className="group relative rounded-xl overflow-hidden shadow-xs border border-slate-200/80 aspect-[16/8] sm:aspect-[16/7] text-right cursor-pointer"
               >
-                موسم الهدايا · STEM & Decor
-              </span>
-              <h3 className="font-display text-lg sm:text-2xl font-extrabold leading-snug">
-                عالم الألعاب الذكية والهدايا التنفيذية
-              </h3>
-              <p className="text-xs sm:text-sm text-slate-200">
-                تغليف هدايا مجاني + تقسيط تمارا وتابي بدون فوائد
-              </p>
-              <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#FACC15] pt-1">
-                <span>اكتشف الهدايا الآن</span>
-                <ArrowLeft className="w-3.5 h-3.5" />
-              </span>
-            </div>
-          </button>
-        </div>
-      </section>
+                <img
+                  src="/assets/images/promo_stem_gifts_1794729737354.jpg"
+                  alt="عالم الألعاب الذكية STEM والهدايا الفاخرة"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                <div className="absolute inset-0 bg-gradient-to-l from-black/80 via-black/45 to-transparent" />
+                <div className="absolute inset-0 p-5 sm:p-7 flex flex-col justify-center items-start gap-2 text-white max-w-md">
+                  <span
+                    className="text-[11px] font-extrabold px-2.5 py-1 rounded"
+                    style={{
+                      backgroundColor: 'var(--color-secondary)',
+                      color: 'var(--color-secondary-contrast)',
+                    }}
+                  >
+                    موسم الهدايا · STEM & Decor
+                  </span>
+                  <h3 className="font-display text-lg sm:text-2xl font-extrabold leading-snug">
+                    عالم الألعاب الذكية والهدايا التنفيذية
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-200">
+                    تغليف هدايا مجاني + تقسيط تمارا وتابي بدون فوائد
+                  </p>
+                  <span className="inline-flex items-center gap-1 text-xs font-extrabold text-[#FACC15] pt-1">
+                    <span>اكتشف الهدايا الآن</span>
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* 6. Full Marketplace Product Catalog Grid */}
-      <section id="catalog-section" className="max-w-[1280px] mx-auto px-3 sm:px-6 space-y-4">
-        <div
-          id="categories-bar"
-          className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs space-y-4"
-        >
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div>
-              <h2 className="font-display text-lg sm:text-2xl font-extrabold text-[#1E293B]">
-                المجموعة المختارة ({filteredProducts.length} منتج)
-              </h2>
+      {visibility.showCatalogSection && (
+        <section id="catalog-section" className="max-w-[1280px] mx-auto px-3 sm:px-6 space-y-4">
+          <div
+            id="categories-bar"
+            className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs space-y-4"
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg sm:text-2xl font-extrabold text-[#1E293B]">
+                  المجموعة المختارة ({filteredProducts.length} منتج)
+                </h2>
               <p className="text-xs text-[#64748B] mt-0.5">
                 جميع منتجات المصمم الأول متوفرة في مستودع الرياض للشحن الفوري
               </p>
@@ -762,11 +847,11 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
                   : { backgroundColor: '#F8F9FA', color: '#1E293B' }
               }
             >
-              الكل ({products.length})
+              الكل ({visibleProducts.length})
             </button>
 
-            {categories.map((cat) => {
-              const count = products.filter((p) => p.categoryId === cat.id).length;
+            {visibleCategories.map((cat) => {
+              const count = visibleProducts.filter((p) => p.categoryId === cat.id).length;
               const active = selectedCategoryId === cat.id && specialFilter === 'all';
               return (
                 <button
@@ -872,61 +957,64 @@ export const StorefrontPage: React.FC<StorefrontPageProps> = ({
           </div>
         )}
       </section>
+      )}
 
       {/* 7. Affiliate & Riyadh Trust Guarantee Card */}
-      <section className="max-w-[1280px] mx-auto px-3 sm:px-6">
-        <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          <div className="lg:col-span-8 space-y-3">
-            <span
-              className="inline-block text-xs font-bold px-3 py-1 rounded"
-              style={{
-                backgroundColor: 'var(--color-primary-soft)',
-                color: 'var(--color-primary)',
-              }}
-            >
-              برنامج سفراء المصمم الأول · الرياض
-            </span>
-            <h2 className="font-display text-xl sm:text-2xl font-extrabold text-[#1E293B]">
-              شارك الفخامة واكسب عمولة 5% على كل طلب عبر رابط الإحالة الخاص بك
-            </h2>
-            <p className="text-xs sm:text-sm text-[#64748B] leading-relaxed max-w-2xl">
-              يمنح رابط الإحالة الخاص بك أصدقاءك في الرياض خصماً فورياً بنسبة 5% على طلبهم، وتُسجّل لك عمولة 5% تلقائياً على كل عملية شراء مكتملة.
-            </p>
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              <button
-                type="button"
-                onClick={handleCopyAffiliateLink}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm shadow-xs hover:brightness-110 transition-all cursor-pointer"
+      {visibility.showAmbassadorSection && (
+        <section className="max-w-[1280px] mx-auto px-3 sm:px-6">
+          <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            <div className="lg:col-span-8 space-y-3">
+              <span
+                className="inline-block text-xs font-bold px-3 py-1 rounded"
                 style={{
-                  backgroundColor: 'var(--color-primary)',
-                  color: 'var(--color-primary-contrast)',
+                  backgroundColor: 'var(--color-primary-soft)',
+                  color: 'var(--color-primary)',
                 }}
               >
-                {copiedRef ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-                <span>{copiedRef ? 'تم نسخ رابط الإحالة (?ref=RIYADH5)' : 'نسخ رابط الإحالة الخاص بك'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={onOpenPolicy}
-                className="px-4 py-2.5 rounded-lg border border-slate-300 bg-[#F8F9FA] hover:bg-slate-200 text-xs sm:text-sm font-bold text-[#1E293B] transition-colors cursor-pointer"
-              >
-                الضمان الذهبي وسياسة الاسترجاع
-              </button>
+                برنامج سفراء المصمم الأول · الرياض
+              </span>
+              <h2 className="font-display text-xl sm:text-2xl font-extrabold text-[#1E293B]">
+                شارك الفخامة واكسب عمولة 5% على كل طلب عبر رابط الإحالة الخاص بك
+              </h2>
+              <p className="text-xs sm:text-sm text-[#64748B] leading-relaxed max-w-2xl">
+                يمنح رابط الإحالة الخاص بك أصدقاءك في الرياض خصماً فورياً بنسبة 5% على طلبهم، وتُسجّل لك عمولة 5% تلقائياً على كل عملية شراء مكتملة.
+              </p>
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCopyAffiliateLink}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-xs sm:text-sm shadow-xs hover:brightness-110 transition-all cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--color-primary)',
+                    color: 'var(--color-primary-contrast)',
+                  }}
+                >
+                  {copiedRef ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+                  <span>{copiedRef ? 'تم نسخ رابط الإحالة (?ref=RIYADH5)' : 'نسخ رابط الإحالة الخاص بك'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenPolicy}
+                  className="px-4 py-2.5 rounded-lg border border-slate-300 bg-[#F8F9FA] hover:bg-slate-200 text-xs sm:text-sm font-bold text-[#1E293B] transition-colors cursor-pointer"
+                >
+                  الضمان الذهبي وسياسة الاسترجاع
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="lg:col-span-4 flex justify-center lg:justify-end">
-            <div className="rounded-xl bg-[#F8F9FA] p-4 w-full max-w-[220px] border border-slate-200 flex items-center justify-center">
-              <img
-                src={logoUrl?.trim() || '/assets/brand/almosamem-full.png'}
-                alt="هوية المصمم الأول الرسمية"
-                referrerPolicy="no-referrer"
-                className="w-full h-36 object-contain"
-              />
+            <div className="lg:col-span-4 flex justify-center lg:justify-end">
+              <div className="rounded-xl bg-[#F8F9FA] p-4 w-full max-w-[220px] border border-slate-200 flex items-center justify-center">
+                <img
+                  src={logoUrl?.trim() || '/assets/brand/almosamem-full.png'}
+                  alt="هوية المصمم الأول الرسمية"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-36 object-contain"
+                />
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* 8. Footer with Safeer Marketing attribution and zero public admin links */}
       <Footer

@@ -46,7 +46,7 @@ import {
 import { getCurrentSessionUser, signOutUser } from './lib/supabase';
 import { syncSeoAndPixels, trackPixelEvent } from './lib/analytics';
 import { calculateCartTotals, validateCoupon } from './utils/commerce';
-import { buildThemeCssVariables } from './utils/theme';
+import { buildThemeCssVariables, resolveStoreVisibility } from './utils/theme';
 import { Navbar, type MarketplaceQuickFilter } from './components/Navbar';
 import { StorefrontPage } from './pages/StorefrontPage';
 import { AdminDashboard } from './pages/AdminDashboard';
@@ -168,6 +168,15 @@ export default function App() {
   useEffect(() => {
     saveWishlistIds(wishlistIds);
   }, [wishlistIds]);
+
+  useEffect(() => {
+    if (selectedCategoryId !== 'all') {
+      const selectedCat = categories.find((c) => c.id === selectedCategoryId);
+      if (!selectedCat || selectedCat.hidden) {
+        setSelectedCategoryId('all');
+      }
+    }
+  }, [categories, selectedCategoryId]);
 
   const themeCssVars = buildThemeCssVariables(storeSettings);
 
@@ -362,6 +371,7 @@ export default function App() {
             document.getElementById('flash-sales-section')?.scrollIntoView({ behavior: 'smooth' });
           }, 50);
         }}
+        showFlashSales={resolveStoreVisibility(storeSettings.visibility).showFlashSales}
       />
 
       <main className="flex-1">
@@ -425,6 +435,7 @@ export default function App() {
             categories={categories}
             referralCode={referralCode}
             logoUrl={storeSettings.logoUrl}
+            storeSettings={storeSettings}
             wishlistIds={wishlistIds}
             searchQuery={searchQuery}
             selectedCategoryId={selectedCategoryId}

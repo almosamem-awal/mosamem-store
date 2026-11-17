@@ -25,6 +25,13 @@ import {
   KeyRound,
   X,
   PhoneCall,
+  Image as ImageIcon,
+  Eye,
+  EyeOff,
+  LayoutGrid,
+  ArrowUp,
+  ArrowDown,
+  Upload,
 } from 'lucide-react';
 import type {
   AuthUser,
@@ -32,15 +39,18 @@ import type {
   Coupon,
   CouponConditionType,
   CouponDiscountType,
+  HeroSlide,
   ManagedUserRecord,
   MarketingSeoSettings,
   Order,
   OrderStatus,
   PaymentGatewaysSettings,
   Product,
+  QuickFeatureVisibility,
   ReturnPolicySettings,
   SallaIntegrationSettings,
   SallaWebhookEventRecord,
+  StorefrontVisibilitySettings,
   StoreThemeSettings,
   UserRole,
 } from '../types/store';
@@ -54,10 +64,14 @@ import {
   isSuperAdminUser,
 } from '../utils/commerce';
 import {
+  DEFAULT_HERO_SLIDES,
   DEFAULT_STORE_SETTINGS,
+  DEFAULT_VISIBILITY_SETTINGS,
   detectMatchingPreset,
   getContrastTextColor,
   normalizeHexColor,
+  resolveHeroSlides,
+  resolveStoreVisibility,
   THEME_PRESETS,
 } from '../utils/theme';
 import { createStudioProductImage } from '../lib/productArt';
@@ -101,6 +115,8 @@ interface AdminDashboardProps {
 type AdminTab =
   | 'analytics'
   | 'branding'
+  | 'storefront_layout'
+  | 'hero'
   | 'products'
   | 'categories'
   | 'coupons'
@@ -112,7 +128,13 @@ type AdminTab =
   | 'seo'
   | 'policy';
 
-const SUPERADMIN_ONLY_TABS: AdminTab[] = ['branding', 'gateways', 'salla', 'users'];
+const SUPERADMIN_ONLY_TABS: AdminTab[] = [
+  'branding',
+  'storefront_layout',
+  'gateways',
+  'salla',
+  'users',
+];
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
   new: 'جديد',
@@ -177,10 +199,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [pImageUrl, setPImageUrl] = useState('');
   const [pTags, setPTags] = useState('magsafe, luxury');
 
-  // Category creation state
+  // Category creation & editing state
   const [newCatNameAr, setNewCatNameAr] = useState('');
   const [newCatNameEn, setNewCatNameEn] = useState('');
   const [newCatDesc, setNewCatDesc] = useState('');
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editCatNameAr, setEditCatNameAr] = useState('');
+  const [editCatNameEn, setEditCatNameEn] = useState('');
+  const [editCatDesc, setEditCatDesc] = useState('');
 
   // Coupon creation state
   const [newCpnCode, setNewCpnCode] = useState('');
@@ -205,6 +231,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [draftSeo, setDraftSeo] = useState<MarketingSeoSettings>(seoSettings);
   const [draftPolicy, setDraftPolicy] = useState<ReturnPolicySettings>(returnPolicy);
   const [draftTheme, setDraftTheme] = useState<StoreThemeSettings>(storeSettings);
+  const [draftHeroSlides, setDraftHeroSlides] = useState<HeroSlide[]>(() =>
+    resolveHeroSlides(storeSettings.heroSlides)
+  );
+  const [draftVisibility, setDraftVisibility] = useState<StorefrontVisibilitySettings>(() =>
+    resolveStoreVisibility(storeSettings.visibility)
+  );
   const [draftSalla, setDraftSalla] = useState<SallaIntegrationSettings>(sallaSettings);
   const [sallaSyncing, setSallaSyncing] = useState<'catalog' | 'orders' | null>(null);
   const [sallaEvents, setSallaEvents] = useState<SallaWebhookEventRecord[]>([]);
@@ -228,6 +260,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     setDraftTheme(storeSettings);
+    setDraftHeroSlides(resolveHeroSlides(storeSettings.heroSlides));
+    setDraftVisibility(resolveStoreVisibility(storeSettings.visibility));
   }, [storeSettings]);
 
   useEffect(() => {
@@ -500,7 +534,104 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleDeleteCategory = (catId: string) => {
     if (categories.length <= 1) return;
     onSaveCategories(categories.filter((c) => c.id !== catId));
+    if (editingCategoryId === catId) setEditingCategoryId(null);
     showSaved('تم حذف القسم.');
+  };
+
+  const startEditCategory = (cat: Category) => {
+    setEditingCategoryId(cat.id);
+    setEditCatNameAr(cat.nameAr);
+    setEditCatNameEn(cat.nameEn);
+    setEditCatDesc(cat.descriptionAr);
+  };
+
+  const handleSaveCategoryEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategoryId || !editCatNameAr.trim()) return;
+    const updated = categories.map((c) =>
+      c.id === editingCategoryId
+        ? {
+            ...c,
+            nameAr: editCatNameAr.trim(),
+            nameEn: editCatNameEn.trim() || editCatNameAr.trim(),
+            descriptionAr: editCatDesc.trim() || c.descriptionAr,
+          }
+        : c
+    );
+    onSaveCategories(updated);
+    setEditingCategoryId(null);
+    showSaved('تم تحديث اسم وبيانات القسم بنجاح وانعكس فوراً في المتجر.');
+  };
+
+  const handleToggleCategoryVisibility = (cat: Category) => {
+    const nextHidden = !cat.hidden;
+    const updated = categories.map((c) =>
+      c.id === cat.id ? { ...c, hidden: nextHidden } : c
+    );
+    onSaveCategories(updated);
+    showSaved(
+      nextHidden
+        ? `تم إخفاء قسم "${cat.nameAr}" بالكامل عن واجهة المتجر.`
+        : `تم إظهار قسم "${cat.nameAr}" في واجهة المتجر.`
+    );
+  };
+
+  const saveHeroSlides = (nextSlides: HeroSlide[], message?: string) => {
+    setDraftHeroSlides(nextSlides);
+    onSaveStoreSettings({
+      ...storeSettings,
+      heroSlides: nextSlides,
+    });
+    if (message) showSaved(message);
+  };
+
+  const handleAddHeroSlide = () => {
+    const newSlide: HeroSlide = {
+      id: `hero-slide-${Date.now()}`,
+      kind: 'image',
+      imageUrl: '/assets/images/promo_tech_essentials_1794729734876.jpg',
+      badgeAr: 'عرض حصري جديد',
+      titleAr: 'عنوان البانر الترويجي الجديد',
+      subtitleAr: 'تشكيلة المصمم الأول المختارة مع شحن سريع داخل الرياض.',
+      ctaLabelAr: 'تسوق الآن',
+      actionType: 'catalog',
+      active: true,
+    };
+    saveHeroSlides(
+      [...draftHeroSlides, newSlide],
+      'تمت إضافة صورة/شريحة هيرو جديدة. يمكنك تعديل الصورة والنصوص الآن.'
+    );
+  };
+
+  const handleHeroImageUpload = (slideId: string, file?: File) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return;
+      const next = draftHeroSlides.map((slide) =>
+        slide.id === slideId ? { ...slide, imageUrl: reader.result as string } : slide
+      );
+      saveHeroSlides(next, 'تم رفع صورة الهيرو وتطبيقها على الشريحة بنجاح.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleMoveHeroSlide = (index: number, direction: -1 | 1) => {
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= draftHeroSlides.length) return;
+    const copy = [...draftHeroSlides];
+    const [moved] = copy.splice(index, 1);
+    copy.splice(targetIdx, 0, moved);
+    saveHeroSlides(copy, 'تم تحديث ترتيب شرائح الهيرو.');
+  };
+
+  const updateStorefrontVisibility = (next: StorefrontVisibilitySettings, notice?: string) => {
+    setDraftVisibility(next);
+    onSaveStoreSettings({
+      ...storeSettings,
+      visibility: next,
+    });
+    showSaved(notice || 'تم تحديث إعدادات ظهور أقسام الواجهة في المتجر فوراً.');
   };
 
   const handleAddCoupon = (e: React.FormEvent) => {
@@ -576,6 +707,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const navItems: Array<{ id: AdminTab; label: string; icon: React.ReactNode; superOnly?: boolean }> = [
     { id: 'analytics', label: 'التحليلات التنفيذية', icon: <BarChart3 className="w-4 h-4" /> },
     { id: 'branding', label: '🎨 الهوية والمظهر', icon: <Palette className="w-4 h-4" />, superOnly: true },
+    { id: 'storefront_layout', label: 'التحكم بأقسام الواجهة', icon: <LayoutGrid className="w-4 h-4" />, superOnly: true },
+    { id: 'hero', label: `صور وبنرات الهيرو (${draftHeroSlides.length})`, icon: <ImageIcon className="w-4 h-4" /> },
     { id: 'products', label: `المنتجات (${products.length})`, icon: <Package className="w-4 h-4" /> },
     { id: 'categories', label: 'الأقسام والخصم الجماعي', icon: <FolderKanban className="w-4 h-4" /> },
     { id: 'coupons', label: 'الكوبونات وعجلة الحظ', icon: <Ticket className="w-4 h-4" /> },
@@ -965,6 +1098,597 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
+          {/* 1B. SUPERADMIN STOREFRONT SECTIONS & QUICK BAR VISIBILITY (SUPERADMIN ONLY) */}
+          {isSuperAdmin && activeTab === 'storefront_layout' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="font-display text-2xl font-bold text-[#0B0F19]">
+                    التحكم بإظهار وإخفاء أقسام الواجهة (SuperAdmin)
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-1">
+                    إظهار أو إخفاء الشريط أسفل الهيرو (كامل أو عناصر منفردة) وأقسام الصفحة الرئيسية فوراً
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateStorefrontVisibility(
+                      DEFAULT_VISIBILITY_SETTINGS,
+                      'تمت استعادة الإعداد الافتراضي وإظهار كافة أقسام وعناصر الواجهة.'
+                    )
+                  }
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0B0F19] cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>إظهار كافة الأقسام</span>
+                </button>
+              </div>
+
+              {/* Card 1: Quick Strip Below Hero */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                  <div>
+                    <h2 className="font-display text-base font-bold text-[#0B0F19]">
+                      1. الشريط التالي للهيرو (شريط المزايا والوصول السريع)
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      يمكنك إخفاء الشريط بالكامل أو التحكم في إظهار وإخفاء كل بطاقة داخله بشكل مستقل
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    data-testid="toggle-quick-strip-master"
+                    onClick={() =>
+                      updateStorefrontVisibility({
+                        ...draftVisibility,
+                        showQuickFeatureStrip: !draftVisibility.showQuickFeatureStrip,
+                      })
+                    }
+                    className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                      draftVisibility.showQuickFeatureStrip
+                        ? 'bg-[#059669] text-white'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    }`}
+                  >
+                    {draftVisibility.showQuickFeatureStrip ? (
+                      <>
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>الشريط الكامل: ظاهر</span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5" />
+                        <span>الشريط الكامل: مخفي</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {!draftVisibility.showQuickFeatureStrip && (
+                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 font-medium">
+                    تنبيه: الشريط الكامل مخفي حالياً من المتجر. يمكنك تفعيل الزر أعلاه لإعادة إظهار العناصر المحددة أدناه.
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {(
+                    [
+                      { key: 'flash', icon: '⚡', label: 'فلاش سيل (لفترة محدودة)' },
+                      { key: 'coupon', icon: '🎫', label: 'كوبون حصري (خصم إضافي)' },
+                      { key: 'wheel', icon: '🎡', label: 'العب واكسب (عجلة الحظ)' },
+                      { key: 'shipping', icon: '🚚', label: 'شحن مجاني (للطلبات المؤهلة)' },
+                      { key: 'magsafe', icon: '📱', label: 'إكسسوارات MagSafe' },
+                      { key: 'gifts', icon: '🎁', label: 'بوكسات الهدايا' },
+                    ] as Array<{ key: keyof QuickFeatureVisibility; icon: string; label: string }>
+                  ).map((item) => {
+                    const enabled = draftVisibility.quickFeatureItems[item.key];
+                    return (
+                      <div
+                        key={item.key}
+                        className={`flex items-center justify-between gap-2 p-3.5 rounded-xl border transition-colors ${
+                          enabled
+                            ? 'bg-emerald-50/40 border-emerald-200'
+                            : 'bg-slate-50 border-slate-200 opacity-75'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-lg shrink-0">{item.icon}</span>
+                          <span className="text-xs font-bold text-[#0B0F19] truncate">
+                            {item.label}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          data-testid={`toggle-quick-item-${item.key}`}
+                          onClick={() =>
+                            updateStorefrontVisibility({
+                              ...draftVisibility,
+                              quickFeatureItems: {
+                                ...draftVisibility.quickFeatureItems,
+                                [item.key]: !enabled,
+                              },
+                            })
+                          }
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold shrink-0 cursor-pointer ${
+                            enabled
+                              ? 'bg-[#059669] text-white'
+                              : 'bg-slate-300 text-slate-700'
+                          }`}
+                        >
+                          {enabled ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          <span>{enabled ? 'ظاهر' : 'مخفي'}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Card 2: Storefront Major Sections */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                <div>
+                  <h2 className="font-display text-base font-bold text-[#0B0F19]">
+                    2. أقسام الصفحة الرئيسية للمتجر
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    تحكم فوري في ظهور كل قسم رئيسي بصفحة المتجر
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(
+                    [
+                      {
+                        key: 'showCircularCategories',
+                        title: 'تسوق حسب القسم مع كوبونات خصم فورية',
+                        desc: 'الأقسام الدائرية التفاعلية مع شارات الخصم وكود ALM30',
+                      },
+                      {
+                        key: 'showFlashSales',
+                        title: 'فلاش سيل كل يوم',
+                        desc: 'قسم Flash Sales كل يوم مع المؤقت التنازلي والرابط في الشريط العلوي',
+                      },
+                      {
+                        key: 'showNewArrivalsBanner',
+                        title: 'وصل حديثاً',
+                        desc: 'البنر الترويجي الخاص بتشكيلة MagSafe وإكسسوارات الجوال',
+                      },
+                      {
+                        key: 'showGiftSeasonBanner',
+                        title: 'موسم الهدايا',
+                        desc: 'البنر الترويجي الخاص بعالم الألعاب الذكية STEM والهدايا التنفيذية',
+                      },
+                      {
+                        key: 'showCatalogSection',
+                        title: 'المجموعة المختارة (50 منتج)',
+                        desc: 'كتالوج المنتجات الكامل مع الفلاتر وشريط السعر والترتيب',
+                      },
+                      {
+                        key: 'showAmbassadorSection',
+                        title: 'برنامج سفراء المصمم الأول · الرياض',
+                        desc: 'قسم رابط الإحالة وعمولة السفراء بنسبة 5% والضمان الذهبي',
+                      },
+                    ] as const
+                  ).map((sec) => {
+                    const isVisible = draftVisibility[sec.key];
+                    return (
+                      <div
+                        key={sec.key}
+                        className={`flex items-center justify-between gap-3 p-4 rounded-xl border transition-colors ${
+                          isVisible
+                            ? 'bg-white border-slate-200'
+                            : 'bg-slate-50 border-slate-200 opacity-75'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-extrabold text-[#0B0F19]">{sec.title}</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">{sec.desc}</div>
+                        </div>
+
+                        <button
+                          type="button"
+                          data-testid={`toggle-section-${sec.key}`}
+                          onClick={() =>
+                            updateStorefrontVisibility({
+                              ...draftVisibility,
+                              [sec.key]: !isVisible,
+                            })
+                          }
+                          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold shrink-0 cursor-pointer transition-colors ${
+                            isVisible
+                              ? 'bg-[#059669] text-white hover:bg-[#047857]'
+                              : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                          }`}
+                        >
+                          {isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                          <span>{isVisible ? 'ظاهر' : 'مخفي'}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 1C. HERO SLIDES & BANNERS MANAGER (REGULAR ADMIN & SUPERADMIN) */}
+          {activeTab === 'hero' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-xl font-bold text-[#0B0F19]">
+                    إدارة صور وبنرات الهيرو ({draftHeroSlides.length})
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    إضافة وتعديل وحذف صور الهيرو وترتيبها وإظهارها أو إخفاؤها في واجهة المتجر
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      saveHeroSlides(
+                        DEFAULT_HERO_SLIDES,
+                        'تمت استعادة بنرات وصور الهيرو الافتراضية.'
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-bold text-[#0B0F19] cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>استعادة الافتراضي</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleAddHeroSlide}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#0B0F19] hover:bg-[#059669] text-white text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>إضافة صورة هيرو جديدة</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      saveHeroSlides(
+                        draftHeroSlides,
+                        'تم حفظ كافة تعديلات صور وبنرات الهيرو وتحديث الواجهة.'
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#059669] hover:bg-[#047857] text-white text-xs font-bold cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>حفظ التغييرات</span>
+                  </button>
+                </div>
+              </div>
+
+              {draftHeroSlides.length === 0 ? (
+                <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-3">
+                  <p className="text-sm font-bold text-[#0B0F19]">لا توجد شرائح هيرو مضافة حالياً.</p>
+                  <button
+                    type="button"
+                    onClick={handleAddHeroSlide}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#059669] text-white text-xs font-bold cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>إضافة أول صورة للهيرو</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {draftHeroSlides.map((slide, idx) => (
+                    <div
+                      key={slide.id}
+                      className={`bg-white rounded-xl border p-5 space-y-4 transition-opacity ${
+                        slide.active !== false
+                          ? 'border-slate-200'
+                          : 'border-slate-200 bg-slate-50/70 opacity-80'
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-1 rounded-md bg-slate-100 text-[#0B0F19] font-mono text-xs font-bold">
+                            #{idx + 1}
+                          </span>
+                          <span className="text-sm font-bold text-[#0B0F19]">
+                            {slide.titleAr || 'شريحة هيرو'}
+                          </span>
+                          <span
+                            className={`text-[11px] px-2 py-0.5 rounded font-bold ${
+                              slide.active !== false
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {slide.active !== false ? 'ظاهرة' : 'مخفية'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveHeroSlide(idx, -1)}
+                            aria-label="تحريك للأعلى"
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === draftHeroSlides.length - 1}
+                            onClick={() => handleMoveHeroSlide(idx, 1)}
+                            aria-label="تحريك للأسفل"
+                            className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = draftHeroSlides.map((s) =>
+                                s.id === slide.id ? { ...s, active: s.active === false } : s
+                              );
+                              saveHeroSlides(
+                                next,
+                                slide.active === false
+                                  ? 'تم تفعيل ظهور شريحة الهيرو.'
+                                  : 'تم إخفاء شريحة الهيرو.'
+                              );
+                            }}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer ${
+                              slide.active !== false
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            {slide.active !== false ? (
+                              <>
+                                <Eye className="w-3 h-3" />
+                                <span>إخفاء</span>
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3 h-3" />
+                                <span>إظهار</span>
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              saveHeroSlides(
+                                draftHeroSlides.filter((s) => s.id !== slide.id),
+                                'تمت إزالة شريحة الهيرو بنجاح.'
+                              )
+                            }
+                            aria-label={`حذف شريحة ${slide.titleAr}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-red-600 hover:bg-red-50 border border-red-200 cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>إزالة</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+                        {/* Image Preview + Upload */}
+                        <div className="lg:col-span-4 space-y-2.5">
+                          <div className="aspect-[16/9] w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center relative">
+                            {slide.imageUrl ? (
+                              <img
+                                src={slide.imageUrl}
+                                alt={slide.titleAr}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="text-center p-4 text-xs text-slate-500">
+                                {slide.kind === 'wheel'
+                                  ? '🎡 شريحة عجلة الحظ التفاعلية (خلفية متدرجة تلقائياً)'
+                                  : 'لا توجد صورة محددة'}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[11px] font-bold text-[#0B0F19] cursor-pointer">
+                              <Upload className="w-3.5 h-3.5 text-[#059669]" />
+                              <span>رفع صورة من الجهاز</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                  handleHeroImageUpload(slide.id, e.target.files?.[0]);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            {slide.imageUrl && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraftHeroSlides((prev) =>
+                                    prev.map((s) =>
+                                      s.id === slide.id ? { ...s, imageUrl: '' } : s
+                                    )
+                                  )
+                                }
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-700 cursor-pointer"
+                              >
+                                مسح الصورة
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Slide Fields */}
+                        <div className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-semibold mb-1">
+                              رابط صورة الهيرو (Image URL)
+                            </label>
+                            <input
+                              type="text"
+                              value={slide.imageUrl}
+                              onChange={(e) =>
+                                setDraftHeroSlides((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slide.id ? { ...s, imageUrl: e.target.value } : s
+                                  )
+                                )
+                              }
+                              placeholder="/assets/images/promo_tech_essentials_1794729734876.jpg أو https://..."
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-semibold mb-1">نوع الشريحة</label>
+                            <select
+                              value={slide.kind}
+                              onChange={(e) =>
+                                setDraftHeroSlides((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slide.id
+                                      ? { ...s, kind: e.target.value as HeroSlide['kind'] }
+                                      : s
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                            >
+                              <option value="image">صورة / بانر إعلاني</option>
+                              <option value="wheel">شريحة عجلة الحظ التفاعلية</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-semibold mb-1">الشارة العلوية</label>
+                            <input
+                              type="text"
+                              value={slide.badgeAr}
+                              onChange={(e) =>
+                                setDraftHeroSlides((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slide.id ? { ...s, badgeAr: e.target.value } : s
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-semibold mb-1">العنوان الرئيسي</label>
+                            <input
+                              type="text"
+                              value={slide.titleAr}
+                              onChange={(e) =>
+                                setDraftHeroSlides((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slide.id ? { ...s, titleAr: e.target.value } : s
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-bold"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] font-semibold mb-1">النص الفرعي</label>
+                            <textarea
+                              rows={2}
+                              value={slide.subtitleAr}
+                              onChange={(e) =>
+                                setDraftHeroSlides((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slide.id ? { ...s, subtitleAr: e.target.value } : s
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-semibold mb-1">نص زر الإجراء</label>
+                            <input
+                              type="text"
+                              value={slide.ctaLabelAr}
+                              onChange={(e) =>
+                                setDraftHeroSlides((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slide.id ? { ...s, ctaLabelAr: e.target.value } : s
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-semibold mb-1">وجهة الضغط على الزر</label>
+                            <select
+                              value={slide.actionType}
+                              onChange={(e) =>
+                                setDraftHeroSlides((prev) =>
+                                  prev.map((s) =>
+                                    s.id === slide.id
+                                      ? { ...s, actionType: e.target.value as HeroSlide['actionType'] }
+                                      : s
+                                  )
+                                )
+                              }
+                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                            >
+                              <option value="catalog">استكشاف الكتالوج</option>
+                              <option value="flash">الانتقال إلى فلاش سيل</option>
+                              <option value="wheel">فتح عجلة الحظ</option>
+                              <option value="category">فتح قسم محدد</option>
+                            </select>
+                          </div>
+
+                          {slide.actionType === 'category' && (
+                            <div className="sm:col-span-2">
+                              <label className="block text-[11px] font-semibold mb-1">
+                                القسم المستهدف
+                              </label>
+                              <select
+                                value={slide.targetCategoryId || categories[0]?.id || ''}
+                                onChange={(e) =>
+                                  setDraftHeroSlides((prev) =>
+                                    prev.map((s) =>
+                                      s.id === slide.id
+                                        ? { ...s, targetCategoryId: e.target.value }
+                                        : s
+                                    )
+                                  )
+                                }
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                              >
+                                {categories.map((cat) => (
+                                  <option key={cat.id} value={cat.id}>
+                                    {cat.nameAr}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 2. ANALYTICS */}
           {activeTab === 'analytics' && (
             <div className="space-y-6">
@@ -1307,65 +2031,169 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {categories.map((cat) => (
-                  <div
-                    key={cat.id}
-                    className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h3 className="font-display text-base font-bold text-[#0B0F19]">
-                          {cat.nameAr}
-                        </h3>
-                        <p className="text-xs text-slate-500 mt-0.5">{cat.descriptionAr}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteCategory(cat.id)}
-                        aria-label={`حذف قسم ${cat.nameAr}`}
-                        className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-700">نسبة الخصم الجماعي للقسم:</span>
-                        <span className="font-bold tabular-nums text-[#FF6B00]">
-                          {cat.bulkDiscountPercent}%
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {[0, 10, 15, 25].map((pct) => (
+                {categories.map((cat) => {
+                  const isEditingThis = editingCategoryId === cat.id;
+                  return (
+                    <div
+                      key={cat.id}
+                      className={`bg-white rounded-xl border p-5 space-y-4 transition-opacity ${
+                        cat.hidden ? 'border-amber-300 bg-amber-50/20 opacity-85' : 'border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-display text-base font-bold text-[#0B0F19]">
+                              {cat.nameAr}
+                            </h3>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                cat.hidden
+                                  ? 'bg-slate-200 text-slate-700'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {cat.hidden ? 'مخفي عن المتجر' : 'ظاهر في المتجر'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">{cat.descriptionAr}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
                           <button
-                            key={pct}
                             type="button"
-                            onClick={() => handleCategoryBulkDiscount(cat.id, pct)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                              cat.bulkDiscountPercent === pct
-                                ? 'bg-[#0B0F19] text-white border-[#0B0F19]'
-                                : 'border-slate-200 text-slate-700 hover:border-slate-400'
+                            onClick={() => handleToggleCategoryVisibility(cat)}
+                            aria-label={cat.hidden ? `إظهار قسم ${cat.nameAr}` : `إخفاء قسم ${cat.nameAr}`}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer ${
+                              cat.hidden
+                                ? 'bg-[#059669] text-white'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                             }`}
                           >
-                            {pct === 0 ? 'بدون خصم' : `${pct}%`}
+                            {cat.hidden ? (
+                              <>
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>إظهار</span>
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3.5 h-3.5" />
+                                <span>إخفاء</span>
+                              </>
+                            )}
                           </button>
-                        ))}
-                        <input
-                          type="number"
-                          min={0}
-                          max={80}
-                          aria-label={`نسبة الخصم المخصصة لقسم ${cat.nameAr}`}
-                          value={cat.bulkDiscountPercent}
-                          onChange={(e) =>
-                            handleCategoryBulkDiscount(cat.id, Number(e.target.value))
-                          }
-                          className="w-20 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs tabular-nums text-center"
-                        />
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              isEditingThis ? setEditingCategoryId(null) : startEditCategory(cat)
+                            }
+                            aria-label={`تعديل اسم قسم ${cat.nameAr}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-bold text-[#0B0F19] cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>تغيير الاسم</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(cat.id)}
+                            aria-label={`حذف قسم ${cat.nameAr}`}
+                            className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditingThis && (
+                        <form
+                          onSubmit={handleSaveCategoryEdit}
+                          className="p-3.5 rounded-xl bg-[#F8FAFC] border border-slate-200 space-y-2.5"
+                        >
+                          <div className="text-xs font-bold text-[#0B0F19]">تعديل اسم ووصف القسم</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              required
+                              aria-label="اسم القسم الجديد بالعربية"
+                              value={editCatNameAr}
+                              onChange={(e) => setEditCatNameAr(e.target.value)}
+                              placeholder="اسم القسم بالعربية"
+                              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                            />
+                            <input
+                              type="text"
+                              aria-label="اسم القسم الجديد بالإنجليزية"
+                              value={editCatNameEn}
+                              onChange={(e) => setEditCatNameEn(e.target.value)}
+                              placeholder="Category Name (EN)"
+                              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                            />
+                          </div>
+                          <input
+                            type="text"
+                            aria-label="وصف القسم الجديد"
+                            value={editCatDesc}
+                            onChange={(e) => setEditCatDesc(e.target.value)}
+                            placeholder="وصف القسم"
+                            className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="submit"
+                              className="px-3.5 py-1.5 rounded-lg bg-[#059669] text-white text-xs font-bold cursor-pointer"
+                            >
+                              حفظ الاسم
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCategoryId(null)}
+                              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold cursor-pointer"
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        </form>
+                      )}
+
+                      <div className="pt-3 border-t border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-700">نسبة الخصم الجماعي للقسم:</span>
+                          <span className="font-bold tabular-nums text-[#FF6B00]">
+                            {cat.bulkDiscountPercent}%
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {[0, 10, 15, 25].map((pct) => (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => handleCategoryBulkDiscount(cat.id, pct)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                                cat.bulkDiscountPercent === pct
+                                  ? 'bg-[#0B0F19] text-white border-[#0B0F19]'
+                                  : 'border-slate-200 text-slate-700 hover:border-slate-400'
+                              }`}
+                            >
+                              {pct === 0 ? 'بدون خصم' : `${pct}%`}
+                            </button>
+                          ))}
+                          <input
+                            type="number"
+                            min={0}
+                            max={80}
+                            aria-label={`نسبة الخصم المخصصة لقسم ${cat.nameAr}`}
+                            value={cat.bulkDiscountPercent}
+                            onChange={(e) =>
+                              handleCategoryBulkDiscount(cat.id, Number(e.target.value))
+                            }
+                            className="w-20 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs tabular-nums text-center"
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <form

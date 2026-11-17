@@ -1,4 +1,5 @@
 import { createStudioProductImage, type ProductArchetype } from '../lib/productArt';
+import { DEFAULT_HERO_SLIDES, DEFAULT_VISIBILITY_SETTINGS } from '../utils/theme';
 import type {
   Category,
   Coupon,
@@ -1512,6 +1513,8 @@ export const INITIAL_STORE_SETTINGS: StoreThemeSettings = {
   logoUrl: '',
   themePreset: 'official_green',
   wheelTargetCouponId: '',
+  heroSlides: DEFAULT_HERO_SLIDES,
+  visibility: DEFAULT_VISIBILITY_SETTINGS,
 };
 
 export const INITIAL_SALLA_SETTINGS: SallaIntegrationSettings = {

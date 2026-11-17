@@ -70,6 +70,7 @@ export interface Category {
   slug: string;
   descriptionAr: string;
   bulkDiscountPercent: number;
+  hidden?: boolean;
 }
 
 export type CouponDiscountType = 'percent' | 'fixed' | 'free_shipping';
@@ -202,12 +203,47 @@ export type ThemePresetId =
   | 'royal_luxury'
   | 'custom';
 
+export interface HeroSlide {
+  id: string;
+  kind: 'wheel' | 'image';
+  imageUrl: string;
+  badgeAr: string;
+  titleAr: string;
+  subtitleAr: string;
+  ctaLabelAr: string;
+  actionType: 'wheel' | 'flash' | 'catalog' | 'category';
+  targetCategoryId?: string;
+  active: boolean;
+}
+
+export interface QuickFeatureVisibility {
+  flash: boolean;
+  coupon: boolean;
+  wheel: boolean;
+  shipping: boolean;
+  magsafe: boolean;
+  gifts: boolean;
+}
+
+export interface StorefrontVisibilitySettings {
+  showQuickFeatureStrip: boolean;
+  quickFeatureItems: QuickFeatureVisibility;
+  showCircularCategories: boolean;
+  showFlashSales: boolean;
+  showNewArrivalsBanner: boolean;
+  showGiftSeasonBanner: boolean;
+  showCatalogSection: boolean;
+  showAmbassadorSection: boolean;
+}
+
 export interface StoreThemeSettings {
   primaryColor: string;
   secondaryColor: string;
   logoUrl: string;
   themePreset: ThemePresetId;
   wheelTargetCouponId?: string;
+  heroSlides?: HeroSlide[];
+  visibility?: StorefrontVisibilitySettings;
 }
 
 export interface SallaIntegrationSettings {

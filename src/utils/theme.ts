@@ -1,4 +1,9 @@
-import type { StoreThemeSettings, ThemePresetId } from '../types/store';
+import type {
+  HeroSlide,
+  StorefrontVisibilitySettings,
+  StoreThemeSettings,
+  ThemePresetId,
+} from '../types/store';
 
 export interface ThemePresetDefinition {
   id: Exclude<ThemePresetId, 'custom'>;
@@ -44,12 +49,88 @@ export const THEME_PRESETS: ThemePresetDefinition[] = [
   },
 ];
 
+export const DEFAULT_HERO_SLIDES: HeroSlide[] = [
+  {
+    id: 'hero-slide-wheel',
+    kind: 'wheel',
+    imageUrl: '',
+    badgeAr: 'الكل كسبان 🎡',
+    titleAr: 'عروض المصمّم الأول الكبرى — أدر العجلة واكسب كود خصمك الفوري!',
+    subtitleAr:
+      'جوائز مضمونة للجميع: 50 ر.س، خصم 30%، شحن مجاني، أو 100 ر.س خصم فوري — تطبّق تلقائياً في سلة التسوق.',
+    ctaLabelAr: 'العب واكسب الآن 🎡',
+    actionType: 'wheel',
+    active: true,
+  },
+  {
+    id: 'hero-slide-magsafe',
+    kind: 'image',
+    imageUrl: '/assets/images/promo_tech_essentials_1794729734876.jpg',
+    badgeAr: 'خصم حتى 30% على إكسسوارات MagSafe',
+    titleAr: 'كفرات الأراميد ومنصات الشحن اللاسلكي الأحدث في الرياض',
+    subtitleAr: 'توصيل خلال ساعات + ضمان استبدال سنتين على جميع إكسسوارات الجوال والشواحن.',
+    ctaLabelAr: 'تسوق إكسسوارات الهواتف',
+    actionType: 'category',
+    targetCategoryId: 'cat-accessories',
+    active: true,
+  },
+  {
+    id: 'hero-slide-stem',
+    kind: 'image',
+    imageUrl: '/assets/images/promo_stem_gifts_1794729737354.jpg',
+    badgeAr: 'ألعاب STEM الذكية وبوكسات الهدايا',
+    titleAr: 'هدية تليق بأحبابك — روبوتات تعليمية وتحف إضاءة عصرية',
+    subtitleAr: 'قسّم فاتورتك على 4 دفعات بدون فوائد مع تمارا وتابي أو ادفع عبر Apple Pay ومدى.',
+    ctaLabelAr: 'استكشف كل المنتجات',
+    actionType: 'catalog',
+    active: true,
+  },
+];
+
+export const DEFAULT_VISIBILITY_SETTINGS: StorefrontVisibilitySettings = {
+  showQuickFeatureStrip: true,
+  quickFeatureItems: {
+    flash: true,
+    coupon: true,
+    wheel: true,
+    shipping: true,
+    magsafe: true,
+    gifts: true,
+  },
+  showCircularCategories: true,
+  showFlashSales: true,
+  showNewArrivalsBanner: true,
+  showGiftSeasonBanner: true,
+  showCatalogSection: true,
+  showAmbassadorSection: true,
+};
+
+export function resolveHeroSlides(slides?: HeroSlide[] | null): HeroSlide[] {
+  if (!Array.isArray(slides)) return DEFAULT_HERO_SLIDES;
+  return slides;
+}
+
+export function resolveStoreVisibility(
+  visibility?: Partial<StorefrontVisibilitySettings> | null
+): StorefrontVisibilitySettings {
+  return {
+    ...DEFAULT_VISIBILITY_SETTINGS,
+    ...(visibility || {}),
+    quickFeatureItems: {
+      ...DEFAULT_VISIBILITY_SETTINGS.quickFeatureItems,
+      ...(visibility?.quickFeatureItems || {}),
+    },
+  };
+}
+
 export const DEFAULT_STORE_SETTINGS: StoreThemeSettings = {
   primaryColor: '#059669',
   secondaryColor: '#FF6B00',
   logoUrl: '',
   themePreset: 'official_green',
   wheelTargetCouponId: '',
+  heroSlides: DEFAULT_HERO_SLIDES,
+  visibility: DEFAULT_VISIBILITY_SETTINGS,
 };
 
 /**
